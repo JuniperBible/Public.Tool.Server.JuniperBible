@@ -22,32 +22,43 @@ if [[ -f "$SETUP_DONE_FLAG" ]]; then
   exit 0
 fi
 
+# Gather system info
+SYS_HOSTNAME=$(hostname)
+SYS_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "N/A")
+SYS_OS=$(grep VERSION_ID /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "NixOS")
+SYS_KERNEL=$(uname -r)
+
 clear
 echo -e "${CYAN}"
-cat << 'EOF'
-                    ◭
-                   ╱ ╲
-                  ╱   ╲
-                 ╱     ╲
-                ╱       ╲
-               ╱  ╭───╮  ╲
-              ╱  ╭╯   ╰╮  ╲
-             ╱   │  ●  │   ╲
-            ╱    ╰╮   ╭╯    ╲
-           ╱      ╰───╯      ╲
-          ╱                   ╲
-         ╱─────────────────────╲
-
-     ╦╦ ╦╔╗╔╦╔═╗╔═╗╦═╗  ╔╗ ╦╔╗ ╦  ╔═╗
-     ║║ ║║║║║╠═╝║╣ ╠╦╝  ╠╩╗║╠╩╗║  ║╣
-    ╚╝╚═╝╝╚╝╩╩  ╚═╝╩╚═  ╚═╝╩╚═╝╩═╝╚═╝
-EOF
+echo "                                 ▄"
+echo "                                ▟ ▙"
+echo "                               ▟   ▙"
+echo "                              ▟     ▙"
+echo "                             ▟       ▙"
+echo "                            ▟         ▙"
+echo "                           ▟   ▄███▄   ▙"
+echo "                          ▟  ▄█▀   ▀█▄  ▙"
+echo "                         ▟  ██       ██  ▙"
+echo "                        ▟   █    ●    █   ▙"
+echo "                       ▟    ██       ██    ▙"
+echo "                      ▟      ▀█▄   ▄█▀      ▙"
+echo "                     ▟         ▀███▀         ▙"
+echo "                    ▟                         ▙"
+echo "                   ▟                           ▙"
+echo "                  ▟▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▙"
+echo ""
+echo "               ╦╦ ╦╔╗╔╦╔═╗╔═╗╦═╗  ╔╗ ╦╔╗ ╦  ╔═╗"
+echo "               ║║ ║║║║║╠═╝║╣ ╠╦╝  ╠╩╗║╠╩╗║  ║╣"
+echo "              ╚╝╚═╝╝╚╝╩╩  ╚═╝╩╚═  ╚═╝╩╚═╝╩═╝╚═╝"
 echo -e "${NC}"
-echo -e "${BOLD}Welcome to Juniper Bible Server Setup${NC}"
+echo -e "${BOLD}                Welcome to Juniper Bible Server${NC}"
+echo "                ─────────────────────────────────"
+echo "                Hostname:  $SYS_HOSTNAME"
+echo "                IP:        $SYS_IP"
+echo "                OS:        NixOS $SYS_OS"
+echo "                Kernel:    $SYS_KERNEL"
 echo ""
-echo "This wizard will help you configure your server."
-echo ""
-echo -e "${YELLOW}Press Enter to continue or Ctrl+C to exit...${NC}"
+echo -e "${YELLOW}                Press Enter to continue...${NC}"
 read -r
 
 # =============================================================================

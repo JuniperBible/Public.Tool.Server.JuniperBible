@@ -136,28 +136,43 @@
 
       [[ -f "$SETUP_DONE_FLAG" ]] && exit 0
 
+      # Gather system info
+      SYS_HOSTNAME=$(hostname)
+      SYS_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "N/A")
+      SYS_OS=$(grep VERSION_ID /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "NixOS")
+      SYS_KERNEL=$(uname -r)
+
       clear
       echo ""
-      echo "                    ◭"
-      echo "                   ╱ ╲"
-      echo "                  ╱   ╲"
-      echo "                 ╱     ╲"
-      echo "                ╱       ╲"
-      echo "               ╱  ╭───╮  ╲"
-      echo "              ╱  ╭╯   ╰╮  ╲"
-      echo "             ╱   │  ●  │   ╲"
-      echo "            ╱    ╰╮   ╭╯    ╲"
-      echo "           ╱      ╰───╯      ╲"
-      echo "          ╱                   ╲"
-      echo "         ╱─────────────────────╲"
+      echo "                                 ▄"
+      echo "                                ▟ ▙"
+      echo "                               ▟   ▙"
+      echo "                              ▟     ▙"
+      echo "                             ▟       ▙"
+      echo "                            ▟         ▙"
+      echo "                           ▟   ▄███▄   ▙"
+      echo "                          ▟  ▄█▀   ▀█▄  ▙"
+      echo "                         ▟  ██       ██  ▙"
+      echo "                        ▟   █    ●    █   ▙"
+      echo "                       ▟    ██       ██    ▙"
+      echo "                      ▟      ▀█▄   ▄█▀      ▙"
+      echo "                     ▟         ▀███▀         ▙"
+      echo "                    ▟                         ▙"
+      echo "                   ▟                           ▙"
+      echo "                  ▟▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▙"
       echo ""
-      echo "     ╦╦ ╦╔╗╔╦╔═╗╔═╗╦═╗  ╔╗ ╦╔╗ ╦  ╔═╗"
-      echo "     ║║ ║║║║║╠═╝║╣ ╠╦╝  ╠╩╗║╠╩╗║  ║╣ "
-      echo "    ╚╝╚═╝╝╚╝╩╩  ╚═╝╩╚═  ╚═╝╩╚═╝╩═╝╚═╝"
+      echo "               ╦╦ ╦╔╗╔╦╔═╗╔═╗╦═╗  ╔╗ ╦╔╗ ╦  ╔═╗"
+      echo "               ║║ ║║║║║╠═╝║╣ ╠╦╝  ╠╩╗║╠╩╗║  ║╣"
+      echo "              ╚╝╚═╝╝╚╝╩╩  ╚═╝╩╚═  ╚═╝╩╚═╝╩═╝╚═╝"
       echo ""
-      echo "      Welcome to Juniper Bible Server"
+      echo "                Welcome to Juniper Bible Server"
+      echo "                ─────────────────────────────────"
+      echo "                Hostname:  $SYS_HOSTNAME"
+      echo "                IP:        $SYS_IP"
+      echo "                OS:        NixOS $SYS_OS"
+      echo "                Kernel:    $SYS_KERNEL"
       echo ""
-      echo "Press Enter to continue..."
+      echo "                Press Enter to continue..."
       read -r
 
       # Step 1: Hostname
