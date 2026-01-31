@@ -9,9 +9,26 @@
 
 set -euo pipefail
 
-DISK="${1:-/dev/sda}"
+# Auto-detect disk if not provided
+detect_disk() {
+  # Check for common disk types in order of preference
+  for disk in /dev/vda /dev/sda /dev/nvme0n1 /dev/xvda; do
+    if [[ -b "$disk" ]]; then
+      echo "$disk"
+      return
+    fi
+  done
+  echo ""
+}
+
+DISK="${1:-$(detect_disk)}"
 SSH_KEY="${2:-}"
 REPO_BASE="https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main"
+
+if [[ -z "$DISK" ]]; then
+  echo "ERROR: Could not detect disk. Please specify: curl ... | sudo bash -s -- /dev/sdX"
+  exit 1
+fi
 
 echo "========================================"
 echo "Juniper Bible - NixOS Bootstrap"
@@ -38,10 +55,19 @@ parted "$DISK" -- set 1 esp on
 parted "$DISK" -- mkpart primary 512MB 100%
 sleep 2
 
+# Determine partition suffix (nvme uses p1/p2, others use 1/2)
+if [[ "$DISK" == *"nvme"* ]]; then
+  PART1="${DISK}p1"
+  PART2="${DISK}p2"
+else
+  PART1="${DISK}1"
+  PART2="${DISK}2"
+fi
+
 # Format
 echo "Formatting..."
-mkfs.fat -F 32 -n boot "${DISK}1"
-mkfs.ext4 -F -L nixos "${DISK}2"
+mkfs.fat -F 32 -n boot "$PART1"
+mkfs.ext4 -F -L nixos "$PART2"
 
 # Mount
 echo "Mounting..."
