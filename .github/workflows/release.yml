@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+          - goos: linux
+            goarch: 386
+            suffix: linux-386
+          - goos: linux
+            goarch: arm
+            goarm: 7
+            suffix: linux-armv7
+          # macOS
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+          # Windows
+          - goos: windows
+            goarch: amd64
+            suffix: windows-amd64
+            ext: .exe
+          - goos: windows
+            goarch: arm64
+            suffix: windows-arm64
+            ext: .exe
+          # FreeBSD
+          - goos: freebsd
+            goarch: amd64
+            suffix: freebsd-amd64
+          - goos: freebsd
+            goarch: arm64
+            suffix: freebsd-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          go build -ldflags="-s -w -X main.version=${VERSION}" \
+            -o juniper-host-${{ matrix.suffix }}${{ matrix.ext }} \
+            ./cmd/juniper-host
+
+      - name: Compress binary
+        run: |
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            zip juniper-host-${{ matrix.suffix }}.zip juniper-host-${{ matrix.suffix }}${{ matrix.ext }}
+          else
+            tar -czvf juniper-host-${{ matrix.suffix }}.tar.gz juniper-host-${{ matrix.suffix }}
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: juniper-host-${{ matrix.suffix }}
+          path: juniper-host-${{ matrix.suffix }}.*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

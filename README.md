@@ -2,19 +2,46 @@
 
 NixOS server configuration for self-hosting Juniper Bible.
 
-## One-Liner Install
+## Quick Install
 
-Boot NixOS installer ISO, get network access, then:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main/bootstrap.sh | sudo bash
-```
-
-Or fully automated (no prompts):
+Download the latest binary for your platform from [Releases](https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases), then:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main/bootstrap.sh | sudo bash -s -- /dev/sda "ssh-ed25519 AAAA..."
+# Make executable
+chmod +x juniper-host-linux-amd64
+
+# Run bootstrap (auto-detects disk, prompts for SSH key)
+sudo ./juniper-host-linux-amd64 bootstrap
 ```
+
+### One-Liner (Linux amd64)
+
+```bash
+curl -fsSL https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases/latest/download/juniper-host-linux-amd64.tar.gz | tar -xzf - && sudo ./juniper-host-linux-amd64 bootstrap
+```
+
+### Fully Automated
+
+```bash
+sudo ./juniper-host-linux-amd64 bootstrap --disk=/dev/vda --ssh-key="ssh-ed25519 AAAA..." --yes
+```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `bootstrap` | Full install (partition, format, install NixOS) |
+| `install` | Install NixOS (requires pre-mounted /mnt) |
+| `wizard` | Interactive setup wizard (run after first boot) |
+| `version` | Show version |
+
+## Bootstrap Options
+
+| Option | Description |
+|--------|-------------|
+| `--disk=DEVICE` | Target disk (auto-detects if not specified) |
+| `--ssh-key=KEY` | SSH public key (prompts if not specified) |
+| `--yes` | Skip confirmation prompts |
 
 ## After Reboot
 
@@ -30,11 +57,16 @@ The wizard guides you through:
 3. SSH keys
 4. Site deployment
 
-Or from your dev machine:
+## Supported Platforms
 
-```bash
-make vps VPS=deploy@YOUR_SERVER_IP:/var/www/juniperbible
-```
+Pre-built binaries are available for:
+
+| OS | Architecture |
+|----|--------------|
+| Linux | amd64, arm64, 386, armv7 |
+| macOS | amd64 (Intel), arm64 (Apple Silicon) |
+| Windows | amd64, arm64 |
+| FreeBSD | amd64, arm64 |
 
 ## What's Included
 
@@ -45,16 +77,31 @@ make vps VPS=deploy@YOUR_SERVER_IP:/var/www/juniperbible
 - **Auto-updates** - Weekly NixOS security updates
 - **Nix garbage collection** - Automatic cleanup
 
-## Files
+## Building from Source
 
-| File | Purpose |
-|------|---------|
-| `bootstrap.sh` | One-liner installer (partitions, formats, installs) |
-| `configuration.nix` | NixOS system configuration |
-| `hardware-configuration.nix` | Template (replaced during install) |
-| `install.sh` | Manual installer (if already partitioned) |
-| `setup-wizard.sh` | First-login interactive setup (runs automatically) |
-| `QUICKSTART.txt` | Copy-paste reference |
+```bash
+# Build for current platform
+make build
+
+# Build for all platforms
+make release-local
+
+# Install to /usr/local/bin
+sudo make install
+```
+
+## Creating a Release
+
+Push a tag to trigger the GitHub Actions release workflow:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+## Legacy Shell Scripts
+
+The original shell scripts are still available in the `legacy/` directory for reference.
 
 ## Customization
 
