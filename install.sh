@@ -40,7 +40,7 @@ fi
 # Check if /mnt/boot is mounted
 if ! mountpoint -q /mnt/boot; then
   echo "ERROR: /mnt/boot is not mounted."
-  echo "Please mount your boot partition: mount /dev/disk/by-label/boot /mnt/boot"
+  echo "Please mount your boot partition: mount /dev/sda1 /mnt/boot"
   exit 1
 fi
 
