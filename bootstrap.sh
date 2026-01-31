@@ -69,11 +69,16 @@ echo "Formatting..."
 mkfs.fat -F 32 -n boot "$PART1"
 mkfs.ext4 -F -L nixos "$PART2"
 
+# Wait for labels to be recognized
+echo "Waiting for disk labels..."
+udevadm settle
+sleep 2
+
 # Mount
 echo "Mounting..."
-mount /dev/disk/by-label/nixos /mnt
+mount "$PART2" /mnt
 mkdir -p /mnt/boot
-mount /dev/disk/by-label/boot /mnt/boot
+mount "$PART1" /mnt/boot
 
 # Generate hardware config
 echo "Generating hardware configuration..."
