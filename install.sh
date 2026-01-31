@@ -23,15 +23,16 @@ if ! mountpoint -q /mnt; then
   echo ""
   echo "Please partition and mount your disk first:"
   echo ""
+  echo "  # For /dev/sda (or /dev/vda on cloud VPS):"
   echo "  parted /dev/sda -- mklabel gpt"
   echo "  parted /dev/sda -- mkpart ESP fat32 1MB 512MB"
   echo "  parted /dev/sda -- set 1 esp on"
   echo "  parted /dev/sda -- mkpart primary 512MB 100%"
   echo "  mkfs.fat -F 32 -n boot /dev/sda1"
   echo "  mkfs.ext4 -L nixos /dev/sda2"
-  echo "  mount /dev/disk/by-label/nixos /mnt"
+  echo "  mount /dev/sda2 /mnt"
   echo "  mkdir -p /mnt/boot"
-  echo "  mount /dev/disk/by-label/boot /mnt/boot"
+  echo "  mount /dev/sda1 /mnt/boot"
   echo ""
   exit 1
 fi

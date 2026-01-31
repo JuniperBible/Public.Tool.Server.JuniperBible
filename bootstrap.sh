@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Juniper Bible - NixOS One-Liner Bootstrap
-# Usage: curl -fsSL https://raw.githubusercontent.com/FocuswithJustin/Website.Public.JuniperBible.org/main/nix-host/bootstrap.sh | sudo bash -s -- [DISK] [SSH_KEY]
+# Usage: curl -fsSL https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main/bootstrap.sh | sudo bash -s -- [DISK] [SSH_KEY]
 #
 # Examples:
-#   curl ... | sudo bash                                    # Uses /dev/sda, prompts for SSH key
+#   curl ... | sudo bash                                    # Auto-detects disk, prompts for SSH key
 #   curl ... | sudo bash -s -- /dev/vda                     # Uses /dev/vda, prompts for SSH key
-#   curl ... | sudo bash -s -- /dev/sda "ssh-ed25519 AAAA..." # Full automation
+#   curl ... | sudo bash -s -- /dev/vda "ssh-ed25519 AAAA..." # Full automation
 
 set -euo pipefail
 

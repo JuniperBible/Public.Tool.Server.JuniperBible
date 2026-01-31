@@ -147,7 +147,7 @@ echo ""
 echo -e "  Hostname: ${CYAN}$new_hostname${NC}"
 echo -e "  Domain:   ${CYAN}$domain${NC}"
 echo -e "  SSH Keys: ${CYAN}${#ssh_keys[@]} key(s)${NC}"
-echo -e "  Deploy:   ${CYAN}$([ "$deploy_now" =~ ^[Yy]$ ] && echo "Yes" || echo "No")${NC}"
+echo -e "  Deploy:   ${CYAN}$([[ "$deploy_now" =~ ^[Yy]$ ]] && echo "Yes" || echo "No")${NC}"
 echo ""
 read -p "Apply this configuration? [Y/n] " -n 1 -r confirm
 echo
@@ -166,9 +166,11 @@ echo -e "${BOLD}Applying configuration...${NC}"
 
 # Build SSH keys string
 ssh_keys_nix=""
-for key in "${ssh_keys[@]}"; do
-  ssh_keys_nix+="    \"$key\"\n"
-done
+if [[ ${#ssh_keys[@]} -gt 0 ]]; then
+  for key in "${ssh_keys[@]}"; do
+    ssh_keys_nix+="    \"$key\"\n"
+  done
+fi
 
 # Update configuration.nix
 sudo cp "$NIXOS_CONFIG" "${NIXOS_CONFIG}.backup"

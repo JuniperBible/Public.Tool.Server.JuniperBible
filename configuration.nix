@@ -95,20 +95,17 @@
       #!/usr/bin/env bash
       set -euo pipefail
 
-      REPO="https://github.com/FocuswithJustin/Website.Public.JuniperBible.org"
-      RELEASE_URL="$REPO/releases/latest/download/site.tar.xz"
+      RELEASE_URL="https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases/latest/download/site.tar.xz"
       DEPLOY_DIR="/var/www/juniperbible"
       TEMP_DIR=$(mktemp -d)
 
       echo "Downloading latest release..."
-      curl -fsSL "$RELEASE_URL" -o "$TEMP_DIR/site.tar.xz" || {
-        echo "No release found. Building from source..."
-        cd "$TEMP_DIR"
-        git clone --depth 1 "$REPO" repo
-        cd repo
-        nix-shell --run "make build"
-        tar -C public -cf - . | xz -T0 -9 > "$TEMP_DIR/site.tar.xz"
-      }
+      if ! curl -fsSL "$RELEASE_URL" -o "$TEMP_DIR/site.tar.xz"; then
+        echo "ERROR: Failed to download release from $RELEASE_URL"
+        echo "Please check that a release exists with site.tar.xz attached."
+        rm -rf "$TEMP_DIR"
+        exit 1
+      fi
 
       echo "Extracting to $DEPLOY_DIR..."
       rm -rf "$DEPLOY_DIR"/*
