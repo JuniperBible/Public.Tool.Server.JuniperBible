@@ -18,10 +18,17 @@ curl -fsSL https://raw.githubusercontent.com/JuniperBible/Website.Server.Juniper
 
 ## After Reboot
 
+SSH in and the setup wizard runs automatically:
+
 ```bash
 ssh deploy@YOUR_SERVER_IP
-deploy-juniper
 ```
+
+The wizard guides you through:
+1. Hostname configuration
+2. Domain for HTTPS
+3. SSH keys
+4. Site deployment
 
 Or from your dev machine:
 
@@ -46,6 +53,7 @@ make vps VPS=deploy@YOUR_SERVER_IP:/var/www/juniperbible
 | `configuration.nix` | NixOS system configuration |
 | `hardware-configuration.nix` | Template (replaced during install) |
 | `install.sh` | Manual installer (if already partitioned) |
+| `setup-wizard.sh` | First-login interactive setup (runs automatically) |
 | `QUICKSTART.txt` | Copy-paste reference |
 
 ## Customization
