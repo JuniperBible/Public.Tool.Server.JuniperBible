@@ -2,28 +2,88 @@
 
 NixOS server configuration for self-hosting Juniper Bible.
 
-## Quick Install
+## Quickstart
 
-Download the latest binary for your platform from [Releases](https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases), then:
+### 1. Boot NixOS Installer
+
+Download the [NixOS minimal ISO](https://nixos.org/download/#nixos-iso) and boot your server from it.
+
+### 2. Get Network Access
 
 ```bash
-# Make executable
-chmod +x juniper-host-linux-amd64
+# For DHCP (most cases)
+sudo systemctl start network-manager
+nmcli device wifi connect "SSID" password "PASSWORD"  # if WiFi
 
-# Run bootstrap (auto-detects disk, prompts for SSH key)
+# Verify connectivity
+ping -c 3 github.com
+```
+
+### 3. Run Bootstrap
+
+```bash
+# Download and run (auto-detects disk)
+curl -fsSL https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases/latest/download/juniper-host-linux-amd64.tar.gz | tar -xzf -
 sudo ./juniper-host-linux-amd64 bootstrap
 ```
 
-### One-Liner (Linux amd64)
+### 4. Reboot & Configure
+
+After reboot, SSH in as the `deploy` user. The setup wizard runs automatically:
 
 ```bash
-curl -fsSL https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases/latest/download/juniper-host-linux-amd64.tar.gz | tar -xzf - && sudo ./juniper-host-linux-amd64 bootstrap
+ssh deploy@YOUR_SERVER_IP
 ```
 
-### Fully Automated
+## Deployment Options
+
+### Option A: Cloud VPS (Vultr, Hetzner, DigitalOcean)
+
+1. Create a new VPS and boot the NixOS ISO via console/VNC
+2. Run the bootstrap one-liner (disk is usually `/dev/vda`)
+3. After reboot, complete the setup wizard via SSH
 
 ```bash
-sudo ./juniper-host-linux-amd64 bootstrap --disk=/dev/vda --ssh-key="ssh-ed25519 AAAA..." --yes
+# Fully automated (no prompts)
+sudo ./juniper-host-linux-amd64 bootstrap \
+  --disk=/dev/vda \
+  --ssh-key="ssh-ed25519 AAAA..." \
+  --yes
+```
+
+### Option B: Dedicated Server / Bare Metal
+
+1. Boot from NixOS USB/ISO
+2. Run bootstrap (disk is usually `/dev/sda` or `/dev/nvme0n1`)
+3. After reboot, complete the setup wizard
+
+```bash
+# Interactive mode
+sudo ./juniper-host-linux-amd64 bootstrap
+```
+
+### Option C: Manual Installation
+
+If you prefer to partition manually:
+
+```bash
+# Partition (example for /dev/sda)
+parted /dev/sda -- mklabel gpt
+parted /dev/sda -- mkpart ESP fat32 1MB 512MB
+parted /dev/sda -- set 1 esp on
+parted /dev/sda -- mkpart primary 512MB 100%
+
+# Format
+mkfs.fat -F 32 -n boot /dev/sda1
+mkfs.ext4 -L nixos /dev/sda2
+
+# Mount
+mount /dev/sda2 /mnt
+mkdir -p /mnt/boot
+mount /dev/sda1 /mnt/boot
+
+# Install
+sudo ./juniper-host-linux-amd64 install
 ```
 
 ## Commands
@@ -39,23 +99,64 @@ sudo ./juniper-host-linux-amd64 bootstrap --disk=/dev/vda --ssh-key="ssh-ed25519
 
 | Option | Description |
 |--------|-------------|
-| `--disk=DEVICE` | Target disk (auto-detects if not specified) |
+| `--disk=DEVICE` | Target disk (auto-detects: vda, sda, nvme0n1, xvda) |
 | `--ssh-key=KEY` | SSH public key (prompts if not specified) |
 | `--yes` | Skip confirmation prompts |
 
-## After Reboot
+## Post-Installation
 
-SSH in and the setup wizard runs automatically:
+### Setup Wizard
+
+The wizard runs automatically on first SSH login and configures:
+
+1. **Hostname** - Server name
+2. **Domain** - For automatic HTTPS via Caddy
+3. **SSH Keys** - For the `deploy` user
+4. **Site Deployment** - Downloads and extracts Juniper Bible
+
+### Manual Site Deployment
 
 ```bash
-ssh deploy@YOUR_SERVER_IP
+# Deploy latest release
+deploy-juniper
+
+# Or via make from your dev machine
+make deploy-vps VPS=deploy@your-server:/var/www/juniperbible
 ```
 
-The wizard guides you through:
-1. Hostname configuration
-2. Domain for HTTPS
-3. SSH keys
-4. Site deployment
+### Updating the Site
+
+```bash
+ssh deploy@your-server
+deploy-juniper
+```
+
+## Server Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    NixOS Server                      │
+├─────────────────────────────────────────────────────┤
+│  Caddy (reverse proxy + auto HTTPS)                 │
+│    ├── Brotli/Gzip pre-compression                  │
+│    ├── Security headers                             │
+│    └── Static file serving                          │
+├─────────────────────────────────────────────────────┤
+│  /var/www/juniperbible                              │
+│    ├── Bible HTML pages                             │
+│    ├── CSS/JS assets                                │
+│    └── Bible archives (br/gz/xz/json)               │
+├─────────────────────────────────────────────────────┤
+│  Services                                           │
+│    ├── SSH (port 22) - key-only                     │
+│    ├── HTTP (port 80) - redirects to HTTPS          │
+│    └── HTTPS (port 443) - auto Let's Encrypt        │
+├─────────────────────────────────────────────────────┤
+│  Maintenance                                        │
+│    ├── Auto-updates (weekly)                        │
+│    └── Garbage collection (30 days)                 │
+└─────────────────────────────────────────────────────┘
+```
 
 ## Supported Platforms
 
@@ -67,41 +168,6 @@ Pre-built binaries are available for:
 | macOS | amd64 (Intel), arm64 (Apple Silicon) |
 | Windows | amd64, arm64 |
 | FreeBSD | amd64, arm64 |
-
-## What's Included
-
-- **Caddy** - Automatic HTTPS, Brotli/Gzip pre-compression support
-- **deploy user** - Unprivileged SSH access for deployments
-- **deploy-juniper** - Script to pull and extract latest site
-- **Firewall** - HTTP (80), HTTPS (443), SSH (22)
-- **Auto-updates** - Weekly NixOS security updates
-- **Nix garbage collection** - Automatic cleanup
-
-## Building from Source
-
-```bash
-# Build for current platform
-make build
-
-# Build for all platforms
-make release-local
-
-# Install to /usr/local/bin
-sudo make install
-```
-
-## Creating a Release
-
-Push a tag to trigger the GitHub Actions release workflow:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-## Legacy Shell Scripts
-
-The original shell scripts are still available in the `legacy/` directory for reference.
 
 ## Customization
 
@@ -134,3 +200,49 @@ users.users.deploy.openssh.authorizedKeys.keys = [
 ```nix
 networking.hostName = "your-hostname";
 ```
+
+## Troubleshooting
+
+### Can't SSH after reboot
+
+- Verify your SSH key was added during bootstrap
+- Check firewall: `sudo iptables -L`
+- Verify SSH service: `sudo systemctl status sshd`
+
+### Caddy not serving HTTPS
+
+- Ensure ports 80/443 are open on your firewall/VPS provider
+- Check Caddy logs: `sudo journalctl -u caddy`
+- Verify DNS points to server IP
+
+### Site not loading
+
+- Check site files exist: `ls /var/www/juniperbible`
+- Re-deploy: `deploy-juniper`
+- Check Caddy config: `sudo caddy validate --config /etc/caddy/Caddyfile`
+
+## Building from Source
+
+```bash
+# Build for current platform
+make build
+
+# Build for all platforms
+make release-local
+
+# Install to /usr/local/bin
+sudo make install
+```
+
+## Creating a Release
+
+Push a tag to trigger the GitHub Actions release workflow:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+## Legacy Shell Scripts
+
+The original shell scripts are still available in the `legacy/` directory for reference.
