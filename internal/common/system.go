@@ -53,6 +53,9 @@ func GetOSVersion() string {
 			return strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), "\"")
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return "unknown"
+	}
 	return "unknown"
 }
 
@@ -102,10 +105,14 @@ func DownloadFile(url, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	_, err = io.Copy(out, resp.Body)
-	return err
+	_, copyErr := io.Copy(out, resp.Body)
+	closeErr := out.Close()
+
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
 // HTTPError represents an HTTP error

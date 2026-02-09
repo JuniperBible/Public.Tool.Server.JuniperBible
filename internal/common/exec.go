@@ -103,9 +103,11 @@ func RunWithProgress(name string, args ...string) error {
 		return err
 	}
 
-	// Progress indicator goroutine
+	// Progress indicator goroutine with proper synchronization
 	done := make(chan struct{})
+	finished := make(chan struct{})
 	go func() {
+		defer close(finished)
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -121,6 +123,7 @@ func RunWithProgress(name string, args ...string) error {
 	// Wait for command to complete
 	err := cmd.Wait()
 	close(done)
+	<-finished // Wait for goroutine to exit
 	fmt.Println() // Newline after progress dots
 
 	return err

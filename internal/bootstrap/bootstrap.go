@@ -230,7 +230,7 @@ func injectSSHKey(key string) error {
 	new := fmt.Sprintf(`"%s"`, escapedKey)
 	content = replaceFirst(content, old, new)
 
-	return os.WriteFile(configPath, []byte(content), 0644)
+	return os.WriteFile(configPath, []byte(content), 0600)
 }
 
 func injectBootDevice(disk string) error {
@@ -244,7 +244,7 @@ func injectBootDevice(disk string) error {
 	// Replace the default /dev/vda with the actual disk
 	content = strings.Replace(content, `device = "/dev/vda";`, fmt.Sprintf(`device = "%s";`, disk), 1)
 
-	return os.WriteFile(configPath, []byte(content), 0644)
+	return os.WriteFile(configPath, []byte(content), 0600)
 }
 
 func replaceFirst(s, old, new string) string {

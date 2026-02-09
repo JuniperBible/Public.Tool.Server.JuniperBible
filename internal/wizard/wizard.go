@@ -177,26 +177,37 @@ func updateConfig(hostname, domain string, sshKeys []string) error {
 	}
 	content := string(data)
 
-	// Update hostname
+	// Update hostname (escape for regex replacement)
 	hostnameRe := regexp.MustCompile(`networking\.hostName = "[^"]*"`)
-	content = hostnameRe.ReplaceAllString(content, fmt.Sprintf(`networking.hostName = "%s"`, hostname))
+	escapedHostname := escapeNixString(hostname)
+	content = hostnameRe.ReplaceAllLiteralString(content, fmt.Sprintf(`networking.hostName = "%s"`, escapedHostname))
 
-	// Update domain
+	// Update domain (escape for regex replacement)
 	domainRe := regexp.MustCompile(`services\.caddy\.virtualHosts\."[^"]*"\.extraConfig`)
-	content = domainRe.ReplaceAllString(content, fmt.Sprintf(`services.caddy.virtualHosts."%s".extraConfig`, domain))
+	escapedDomain := escapeNixString(domain)
+	content = domainRe.ReplaceAllLiteralString(content, fmt.Sprintf(`services.caddy.virtualHosts."%s".extraConfig`, escapedDomain))
 
 	// Update SSH keys
 	if len(sshKeys) > 0 {
 		var keysNix strings.Builder
 		keysNix.WriteString("users.users.deploy.openssh.authorizedKeys.keys = [\n")
 		for _, key := range sshKeys {
-			keysNix.WriteString(fmt.Sprintf("    \"%s\"\n", key))
+			escapedKey := escapeNixString(key)
+			keysNix.WriteString(fmt.Sprintf("    \"%s\"\n", escapedKey))
 		}
 		keysNix.WriteString("  ];")
 
 		keysRe := regexp.MustCompile(`users\.users\.deploy\.openssh\.authorizedKeys\.keys = \[[\s\S]*?\];`)
-		content = keysRe.ReplaceAllString(content, keysNix.String())
+		content = keysRe.ReplaceAllLiteralString(content, keysNix.String())
 	}
 
 	return os.WriteFile(nixosConfig, []byte(content), 0600)
+}
+
+// escapeNixString escapes special characters for Nix string literals
+func escapeNixString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, `$`, `\$`)
+	return s
 }

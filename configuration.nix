@@ -301,6 +301,13 @@
     enable = true;
     maxretry = 5;
     bantime = "1h";
+    jails.sshd = {
+      settings = {
+        enabled = true;
+        port = "ssh";
+        filter = "sshd";
+      };
+    };
   };
 
   # SSH server
