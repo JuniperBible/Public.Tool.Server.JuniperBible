@@ -33,6 +33,10 @@ func Run(args []string) {
 			os.Exit(1)
 		}
 		keyStr := strings.TrimSpace(string(data))
+		if keyStr == "" {
+			common.Error("SSH key file is empty")
+			os.Exit(1)
+		}
 		sshKey = &keyStr
 	}
 
@@ -253,21 +257,9 @@ func injectBootDevice(disk string) error {
 }
 
 func replaceFirst(s, old, new string) string {
-	i := indexOf(s, old)
+	i := strings.Index(s, old)
 	if i < 0 {
 		return s
 	}
 	return s[:i] + new + s[i+len(old):]
-}
-
-func indexOf(s, substr string) int {
-	if substr == "" || len(substr) > len(s) {
-		return -1
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }

@@ -16,6 +16,14 @@ const (
 	ReleaseURL = "https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases/latest/download/site.tar.xz"
 )
 
+// Pre-compiled regex patterns for validation
+var (
+	sshKeyPattern   = regexp.MustCompile(`^(ssh-rsa|ssh-ed25519|ssh-dss|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)\s+[A-Za-z0-9+/]+=*(\s+[^\s].*)?$`)
+	diskPathPattern = regexp.MustCompile(`^/dev/(nvme\d+n\d+|[svx]d[a-z]+|loop\d+)$`)
+	hostnamePattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+	domainPattern   = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+)
+
 // GetHostname returns the system hostname
 func GetHostname() string {
 	hostname, err := os.Hostname()
@@ -153,28 +161,23 @@ func IsValidSSHKey(key string) bool {
 		return false
 	}
 	// Validate format: type + space + base64 + optional comment
-	pattern := `^(ssh-rsa|ssh-ed25519|ssh-dss|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)\s+[A-Za-z0-9+/]+=*(\s+.*)?$`
-	matched, _ := regexp.MatchString(pattern, key)
-	return matched
+	return sshKeyPattern.MatchString(key)
 }
 
 // IsValidDiskPath validates a disk device path
 func IsValidDiskPath(path string) bool {
-	// Match standard Linux disk paths: /dev/vda, /dev/sda, /dev/nvme0n1, /dev/xvda, etc.
-	pattern := `^/dev/(nvme\d+n\d+|[svx]d[a-z]|loop\d+)$`
-	matched, _ := regexp.MatchString(pattern, path)
-	return matched
+	// Match standard Linux disk paths: /dev/vda, /dev/sda, /dev/sdaa, /dev/nvme0n1, /dev/xvda, etc.
+	return diskPathPattern.MatchString(path)
 }
 
 // IsValidHostname validates a hostname format
 func IsValidHostname(hostname string) bool {
-	if len(hostname) == 0 || len(hostname) > 253 {
+	// RFC 1123: max 63 chars per label
+	if len(hostname) == 0 || len(hostname) > 63 {
 		return false
 	}
 	// RFC 1123: alphanumeric and hyphens, cannot start/end with hyphen
-	pattern := `^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`
-	matched, _ := regexp.MatchString(pattern, hostname)
-	return matched
+	return hostnamePattern.MatchString(hostname)
 }
 
 // IsValidDomain validates a domain name format
@@ -186,7 +189,5 @@ func IsValidDomain(domain string) bool {
 		return false
 	}
 	// RFC 1035: labels separated by dots, each label alphanumeric with hyphens
-	pattern := `^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`
-	matched, _ := regexp.MatchString(pattern, domain)
-	return matched
+	return domainPattern.MatchString(domain)
 }

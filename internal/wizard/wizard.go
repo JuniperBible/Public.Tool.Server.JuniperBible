@@ -36,12 +36,17 @@ func Run(args []string) {
 	common.Step(1, 4, "Hostname")
 	fmt.Printf("Current hostname: %s%s%s\n\n", common.Cyan, hostname, common.Reset)
 	var newHostname string
-	for {
+	const maxRetries = 5
+	for attempts := 0; attempts < maxRetries; attempts++ {
 		newHostname = common.Prompt("Enter new hostname (or press Enter to keep current)", hostname)
 		if common.IsValidHostname(newHostname) {
 			break
 		}
 		common.Error("Invalid hostname. Use alphanumerics and hyphens only (1-63 chars).")
+		if attempts == maxRetries-1 {
+			common.Error("Too many invalid attempts. Setup cancelled.")
+			os.Exit(1)
+		}
 	}
 
 	// Step 2: Domain
@@ -54,12 +59,16 @@ func Run(args []string) {
 	fmt.Println("  - localhost (for testing, no HTTPS)")
 	fmt.Println()
 	var domain string
-	for {
+	for attempts := 0; attempts < maxRetries; attempts++ {
 		domain = common.Prompt("Domain", "localhost")
 		if common.IsValidDomain(domain) {
 			break
 		}
 		common.Error("Invalid domain. Use alphanumerics, hyphens, and dots only.")
+		if attempts == maxRetries-1 {
+			common.Error("Too many invalid attempts. Setup cancelled.")
+			os.Exit(1)
+		}
 	}
 
 	// Step 3: SSH Keys
@@ -125,9 +134,10 @@ func Run(args []string) {
 	fmt.Println()
 	fmt.Printf("%sApplying configuration...%s\n\n", common.Bold, common.Reset)
 
-	// Backup config
+	// Backup config (fatal if fails - we need to be able to restore)
 	if err := copyFile(nixosConfig, nixosConfig+".backup"); err != nil {
-		common.Warning(fmt.Sprintf("Failed to backup config: %v", err))
+		common.Error(fmt.Sprintf("Failed to backup config: %v", err))
+		os.Exit(1)
 	}
 
 	// Update configuration

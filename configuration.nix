@@ -211,14 +211,35 @@
       echo "                Press Enter to continue..."
       read -r
 
+      # Input validation functions
+      validate_hostname() {
+        local h="$1"
+        [[ ${#h} -gt 0 && ${#h} -le 63 && "$h" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]
+      }
+      validate_domain() {
+        local d="$1"
+        [[ "$d" == "localhost" ]] && return 0
+        [[ ${#d} -gt 0 && ${#d} -le 253 && "$d" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]
+      }
+      escape_sed() {
+        printf '%s\n' "$1" | sed -e 's/[\/&]/\\&/g' -e 's/"/\\"/g'
+      }
+
       # Step 1: Hostname
       clear
       echo "Step 1/4: Hostname"
       echo ""
       current_hostname=$(hostname)
       echo "Current: $current_hostname"
-      read -p "New hostname (Enter to keep): " new_hostname
-      new_hostname="''${new_hostname:-$current_hostname}"
+      for attempt in 1 2 3 4 5; do
+        read -p "New hostname (Enter to keep): " new_hostname
+        new_hostname="''${new_hostname:-$current_hostname}"
+        if validate_hostname "$new_hostname"; then
+          break
+        fi
+        echo "Invalid hostname. Use alphanumerics and hyphens (1-63 chars)."
+        [[ $attempt -eq 5 ]] && { echo "Too many invalid attempts."; exit 1; }
+      done
 
       # Step 2: Domain
       clear
@@ -227,8 +248,15 @@
       echo "Enter domain for HTTPS (e.g., juniperbible.org)"
       echo "Use 'localhost' for testing without HTTPS"
       echo ""
-      read -p "Domain: " domain
-      domain="''${domain:-localhost}"
+      for attempt in 1 2 3 4 5; do
+        read -p "Domain: " domain
+        domain="''${domain:-localhost}"
+        if validate_domain "$domain"; then
+          break
+        fi
+        echo "Invalid domain format."
+        [[ $attempt -eq 5 ]] && { echo "Too many invalid attempts."; exit 1; }
+      done
 
       # Step 3: SSH Keys
       clear
@@ -271,13 +299,19 @@
       # Apply
       echo "Applying configuration..."
       sudo cp "$NIXOS_CONFIG" "''${NIXOS_CONFIG}.backup"
-      sudo sed -i "s/networking.hostName = \".*\"/networking.hostName = \"$new_hostname\"/" "$NIXOS_CONFIG"
-      sudo sed -i "s/services.caddy.virtualHosts.\"[^\"]*\".extraConfig/services.caddy.virtualHosts.\"$domain\".extraConfig/" "$NIXOS_CONFIG"
+
+      # Escape inputs for sed
+      escaped_hostname=$(escape_sed "$new_hostname")
+      escaped_domain=$(escape_sed "$domain")
+
+      sudo sed -i "s/networking.hostName = \".*\"/networking.hostName = \"$escaped_hostname\"/" "$NIXOS_CONFIG"
+      sudo sed -i "s/services.caddy.virtualHosts.\"[^\"]*\".extraConfig/services.caddy.virtualHosts.\"$escaped_domain\".extraConfig/" "$NIXOS_CONFIG"
 
       if [[ ''${#ssh_keys[@]} -gt 0 ]]; then
         keys_nix=""
         for key in "''${ssh_keys[@]}"; do
-          keys_nix+="    \"$key\"\n"
+          escaped_key=$(escape_sed "$key")
+          keys_nix+="    \"$escaped_key\"\n"
         done
         sudo sed -i '/authorizedKeys.keys = \[/,/\];/{/authorizedKeys.keys = \[/!{/\];/!d}}' "$NIXOS_CONFIG"
         sudo sed -i "s|authorizedKeys.keys = \[|authorizedKeys.keys = [\n$keys_nix|" "$NIXOS_CONFIG"
