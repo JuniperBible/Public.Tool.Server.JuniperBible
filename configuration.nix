@@ -143,6 +143,12 @@
       DEPLOY_DIR="/var/www/juniperbible"
       TEMP_DIR=$(mktemp -d)
 
+      # Safety check: ensure DEPLOY_DIR is set and looks valid
+      if [[ -z "$DEPLOY_DIR" || "$DEPLOY_DIR" != /var/www/* ]]; then
+        echo "ERROR: Invalid DEPLOY_DIR: $DEPLOY_DIR"
+        exit 1
+      fi
+
       # Cleanup on exit/interrupt
       trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
 
@@ -175,6 +181,14 @@
       SETUP_DONE_FLAG="/etc/juniper-setup-complete"
 
       [[ -f "$SETUP_DONE_FLAG" ]] && exit 0
+
+      # Lock file to prevent concurrent wizard runs
+      LOCK_FILE="/tmp/juniper-setup.lock"
+      exec 200>"$LOCK_FILE"
+      if ! flock -n 200; then
+        echo "Setup wizard is already running in another session."
+        exit 0
+      fi
 
       # Gather system info
       SYS_HOSTNAME=$(hostname)
@@ -272,11 +286,12 @@
       while true; do
         read -p "Key: " key
         [[ -z "$key" ]] && break
-        if [[ "$key" == ssh-* ]] || [[ "$key" == ecdsa-* ]]; then
+        # Validate SSH key format (must be valid type + base64 data)
+        if [[ "$key" =~ ^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp[0-9]+)[[:space:]]+[A-Za-z0-9+/]+=*([[:space:]].+)?$ ]]; then
           ssh_keys+=("$key")
           echo "✓ Added"
         else
-          echo "Invalid format (should start with ssh-ed25519, ssh-rsa, etc)"
+          echo "Invalid format (should be: ssh-ed25519/ssh-rsa/ecdsa-* followed by base64 key)"
         fi
       done
 

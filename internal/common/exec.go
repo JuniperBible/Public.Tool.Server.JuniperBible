@@ -44,6 +44,8 @@ func RunWithOutput(name string, args ...string) (string, error) {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
+		// Close the pipe to prevent resource leak
+		stdout.Close()
 		return "", err
 	}
 

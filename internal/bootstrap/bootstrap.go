@@ -162,14 +162,17 @@ func Run(args []string) {
 	}
 
 	// Inject SSH key
-	if key != "" && common.IsValidSSHKey(key) {
-		if err := injectSSHKey(key); err != nil {
+	if key != "" {
+		if !common.IsValidSSHKey(key) {
+			common.Warning("SSH key failed validation (invalid format). Continuing without SSH key.")
+			common.Warning("You may be locked out of the server!")
+		} else if err := injectSSHKey(key); err != nil {
 			common.Error(fmt.Sprintf("CRITICAL: Failed to inject SSH key: %v", err))
 			fmt.Println("\nWithout an SSH key, you will be LOCKED OUT of your server!")
 			fmt.Println("You must fix this issue before proceeding.")
 			os.Exit(1)
 		} else {
-			common.Success("SSH key configured")
+			common.Success("SSH key configured for deploy and root users")
 		}
 	}
 
@@ -278,10 +281,3 @@ func injectBootDevice(disk string) error {
 	return os.WriteFile(configPath, []byte(content), 0600)
 }
 
-func replaceFirst(s, old, new string) string {
-	i := strings.Index(s, old)
-	if i < 0 {
-		return s
-	}
-	return s[:i] + new + s[i+len(old):]
-}

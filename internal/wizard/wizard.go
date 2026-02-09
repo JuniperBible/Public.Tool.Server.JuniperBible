@@ -73,7 +73,7 @@ func Run(args []string) {
 
 	// Step 3: SSH Keys
 	common.Step(3, 4, "SSH Keys")
-	fmt.Println("Add SSH public keys for the 'deploy' user.")
+	fmt.Println("Add SSH public keys for server access (deploy and root users).")
 	fmt.Println("Paste one key per line. Enter empty line when done.")
 	fmt.Println()
 	fmt.Printf("%sWARNING: If you don't add a key, you may be locked out!%s\n\n", common.Yellow, common.Reset)
@@ -197,7 +197,18 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0600)
+	if err := os.WriteFile(dst, data, 0600); err != nil {
+		return err
+	}
+	// Verify backup was written successfully
+	info, err := os.Stat(dst)
+	if err != nil {
+		return fmt.Errorf("backup verification failed: %w", err)
+	}
+	if info.Size() != int64(len(data)) {
+		return fmt.Errorf("backup size mismatch: expected %d, got %d", len(data), info.Size())
+	}
+	return nil
 }
 
 func updateConfig(hostname, domain string, sshKeys []string) error {

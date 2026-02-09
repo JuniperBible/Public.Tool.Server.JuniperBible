@@ -18,7 +18,8 @@ const (
 
 // Pre-compiled regex patterns for validation
 var (
-	sshKeyPattern   = regexp.MustCompile(`^(ssh-rsa|ssh-ed25519|ssh-dss|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)\s+[A-Za-z0-9+/]+=*(\s+[^\s].*)?$`)
+	// Note: ssh-dss (DSA) is excluded as it's deprecated and limited to 1024 bits
+	sshKeyPattern = regexp.MustCompile(`^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)\s+[A-Za-z0-9+/]+=*(\s+[^\s].*)?$`)
 	diskPathPattern = regexp.MustCompile(`^/dev/(nvme\d+n\d+|[svx]d[a-z]+|loop\d+)$`)
 	hostnamePattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 	domainPattern   = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
