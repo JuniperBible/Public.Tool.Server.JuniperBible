@@ -11,36 +11,18 @@
 
   networking.hostName = "juniperbible";
 
-  # Your domain (used by Caddy for automatic HTTPS)
-  # Set to your actual domain or use localhost for testing
-  services.caddy.virtualHosts."juniperbible.org".extraConfig = ''
-    root * /var/www/juniperbible
-    encode gzip
-    file_server {
-      precompressed br gzip
-    }
-
-    # Cache static assets
-    @static {
-      path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
-    }
-    header @static Cache-Control "public, max-age=31536000, immutable"
-
-    # Cache Bible pages
-    @bible {
-      path /bible/*
-    }
-    header @bible Cache-Control "public, max-age=86400"
-
-    # Security headers
-    header {
-      Strict-Transport-Security "max-age=31536000; includeSubDomains"
-      X-Content-Type-Options nosniff
-      X-Frame-Options DENY
-      Referrer-Policy strict-origin-when-cross-origin
-      Permissions-Policy "camera=(), microphone=(), geolocation=()"
-    }
-  '';
+  # TLS Mode Options:
+  #   1 = ACME HTTP-01 (requires DNS pointing directly to server)
+  #   2 = ACME DNS-01 via Cloudflare (works behind proxy, requires API token)
+  #   3 = Custom certificate (provide cert/key paths)
+  #   4 = HTTP only (no TLS, for localhost/testing)
+  #   5 = Self-signed (default, works everywhere, browser warning)
+  #
+  # TLS_MODE = "5";
+  # TLS_DOMAIN = "juniperbible.org";
+  # TLS_CF_API_TOKEN = "";  # For mode 2 only
+  # TLS_CERT_PATH = "";     # For mode 3 only
+  # TLS_KEY_PATH = "";      # For mode 3 only
 
   # Add your SSH public key here (same key for deploy and root users)
   users.users.deploy.openssh.authorizedKeys.keys = [
@@ -116,8 +98,58 @@
     brotli
   ];
 
-  # Caddy web server
-  services.caddy.enable = true;
+  # Caddy web server with custom Caddyfile
+  services.caddy = {
+    enable = true;
+    configFile = /etc/caddy/Caddyfile;
+  };
+
+  # Default Caddyfile (will be replaced by setup wizard)
+  environment.etc."caddy/Caddyfile" = {
+    mode = "0644";
+    text = ''
+      # Juniper Bible - Caddy Configuration
+      # TLS Mode: self-signed (default)
+      {
+        log {
+          level ERROR
+        }
+      }
+
+      :443 {
+        tls internal
+        root * /var/www/juniperbible
+        encode gzip
+        file_server {
+          precompressed br gzip
+        }
+
+        # Cache static assets
+        @static {
+          path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
+        }
+        header @static Cache-Control "public, max-age=31536000, immutable"
+
+        # Cache Bible pages
+        @bible {
+          path /bible/*
+        }
+        header @bible Cache-Control "public, max-age=86400"
+
+        # Security headers
+        header {
+          X-Content-Type-Options nosniff
+          X-Frame-Options DENY
+          Referrer-Policy strict-origin-when-cross-origin
+          Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        }
+      }
+
+      :80 {
+        redir https://{host}{uri} permanent
+      }
+    '';
+  };
 
   # Deploy user (for SSH deployments)
   users.users.deploy = {
@@ -126,19 +158,6 @@
     extraGroups = [ "caddy" ];
     shell = pkgs.bash;
   };
-
-  # Passwordless sudo for deploy user (limited to specific commands)
-  security.sudo.extraRules = [{
-    users = [ "deploy" ];
-    commands = [
-      { command = "/etc/deploy-juniper.sh"; options = [ "NOPASSWD" ]; }
-      { command = "/run/current-system/sw/bin/nixos-rebuild"; options = [ "NOPASSWD" ]; }
-      { command = "/run/current-system/sw/bin/cp"; options = [ "NOPASSWD" ]; }
-      { command = "/run/current-system/sw/bin/sed"; options = [ "NOPASSWD" ]; }
-      { command = "/run/current-system/sw/bin/touch"; options = [ "NOPASSWD" ]; }
-      { command = "/run/current-system/sw/bin/chmod"; options = [ "NOPASSWD" ]; }
-    ];
-  }];
 
   # Web directory
   systemd.tmpfiles.rules = [
@@ -288,10 +307,9 @@
 
       # Step 2: Domain
       clear
-      echo "Step 2/4: Domain"
+      echo "Step 2/5: Domain"
       echo ""
       echo "Enter domain for HTTPS (e.g., juniperbible.org)"
-      echo "Use 'localhost' for testing without HTTPS"
       echo ""
       for attempt in 1 2 3 4 5; do
         read -p "Domain: " domain
@@ -303,9 +321,52 @@
         [[ $attempt -eq 5 ]] && { echo "Too many invalid attempts."; exit 1; }
       done
 
-      # Step 3: SSH Keys
+      # Step 3: TLS Mode
       clear
-      echo "Step 3/4: SSH Keys"
+      echo "Step 3/5: TLS Certificate Mode"
+      echo ""
+      echo "How should HTTPS certificates be handled?"
+      echo ""
+      echo "  1) ACME HTTP-01  - Auto cert, requires DNS pointing directly to this server"
+      echo "  2) ACME DNS-01   - Auto cert via Cloudflare DNS (works behind proxy)"
+      echo "  3) Custom cert   - Provide your own certificate files"
+      echo "  4) HTTP only     - No HTTPS (for testing only)"
+      echo "  5) Self-signed   - Works everywhere, browser shows warning (default)"
+      echo ""
+      read -p "TLS mode [5]: " tls_mode
+      tls_mode="''${tls_mode:-5}"
+
+      cf_api_token=""
+      cert_path=""
+      key_path=""
+
+      case "$tls_mode" in
+        1) echo "Using ACME HTTP-01 challenge" ;;
+        2)
+          echo ""
+          echo "Enter your Cloudflare API token (needs Zone:DNS:Edit permission):"
+          read -p "CF API Token: " cf_api_token
+          if [[ -z "$cf_api_token" ]]; then
+            echo "API token required for DNS-01. Falling back to self-signed."
+            tls_mode="5"
+          fi
+          ;;
+        3)
+          echo ""
+          read -p "Certificate path: " cert_path
+          read -p "Key path: " key_path
+          if [[ ! -f "$cert_path" || ! -f "$key_path" ]]; then
+            echo "Certificate files not found. Falling back to self-signed."
+            tls_mode="5"
+          fi
+          ;;
+        4) echo "Using HTTP only (no TLS)" ;;
+        5|*) tls_mode="5"; echo "Using self-signed certificate" ;;
+      esac
+
+      # Step 4: SSH Keys
+      clear
+      echo "Step 4/5: SSH Keys"
       echo ""
       echo "Paste SSH public keys (one per line, empty line to finish)"
       echo ""
@@ -322,13 +383,23 @@
         fi
       done
 
-      # Step 4: Deploy now?
+      # Step 5: Deploy now?
       clear
-      echo "Step 4/4: Deploy Site"
+      echo "Step 5/5: Deploy Site"
       echo ""
       read -p "Deploy Juniper Bible now? [Y/n] " -n 1 -r deploy_now
       echo
       deploy_now="''${deploy_now:-y}"
+
+      # TLS mode display names
+      tls_mode_name="Self-signed"
+      case "$tls_mode" in
+        1) tls_mode_name="ACME HTTP-01" ;;
+        2) tls_mode_name="ACME DNS-01 (Cloudflare)" ;;
+        3) tls_mode_name="Custom certificate" ;;
+        4) tls_mode_name="HTTP only" ;;
+        5) tls_mode_name="Self-signed" ;;
+      esac
 
       # Confirm
       clear
@@ -336,6 +407,7 @@
       echo ""
       echo "  Hostname: $new_hostname"
       echo "  Domain:   $domain"
+      echo "  TLS Mode: $tls_mode_name"
       echo "  SSH Keys: ''${#ssh_keys[@]}"
       echo ""
       read -p "Apply? [Y/n] " -n 1 -r confirm
@@ -351,10 +423,8 @@
 
       # Escape inputs for sed
       escaped_hostname=$(escape_sed "$new_hostname")
-      escaped_domain=$(escape_sed "$domain")
 
       sed -i "s/networking.hostName = \".*\"/networking.hostName = \"$escaped_hostname\"/" "$NIXOS_CONFIG"
-      sed -i "s/services.caddy.virtualHosts.\"[^\"]*\".extraConfig/services.caddy.virtualHosts.\"$escaped_domain\".extraConfig/" "$NIXOS_CONFIG"
 
       if [[ ''${#ssh_keys[@]} -gt 0 ]]; then
         keys_nix=""
@@ -365,6 +435,128 @@
         sed -i '/authorizedKeys.keys = \[/,/\];/{/authorizedKeys.keys = \[/!{/\];/!d}}' "$NIXOS_CONFIG"
         sed -i "s|authorizedKeys.keys = \[|authorizedKeys.keys = [\n$keys_nix|" "$NIXOS_CONFIG"
       fi
+
+      # Generate Caddyfile based on TLS mode
+      echo "Generating Caddyfile..."
+      CADDYFILE="/etc/caddy/Caddyfile"
+
+      # Common site configuration
+      site_config='root * /var/www/juniperbible
+        encode gzip
+        file_server {
+          precompressed br gzip
+        }
+
+        @static {
+          path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
+        }
+        header @static Cache-Control "public, max-age=31536000, immutable"
+
+        @bible {
+          path /bible/*
+        }
+        header @bible Cache-Control "public, max-age=86400"
+
+        header {
+          X-Content-Type-Options nosniff
+          X-Frame-Options DENY
+          Referrer-Policy strict-origin-when-cross-origin
+          Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        }'
+
+      case "$tls_mode" in
+        1)
+          # ACME HTTP-01
+          cat > "$CADDYFILE" << CADDYEOF
+# Juniper Bible - TLS Mode: ACME HTTP-01
+{
+  log {
+    level ERROR
+  }
+}
+
+$domain {
+  $site_config
+  header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+CADDYEOF
+          ;;
+        2)
+          # ACME DNS-01 via Cloudflare
+          cat > "$CADDYFILE" << CADDYEOF
+# Juniper Bible - TLS Mode: ACME DNS-01 (Cloudflare)
+{
+  log {
+    level ERROR
+  }
+  acme_dns cloudflare $cf_api_token
+}
+
+$domain {
+  tls {
+    dns cloudflare $cf_api_token
+  }
+  $site_config
+  header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+CADDYEOF
+          ;;
+        3)
+          # Custom certificate
+          cat > "$CADDYFILE" << CADDYEOF
+# Juniper Bible - TLS Mode: Custom Certificate
+{
+  log {
+    level ERROR
+  }
+}
+
+$domain {
+  tls $cert_path $key_path
+  $site_config
+  header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+CADDYEOF
+          ;;
+        4)
+          # HTTP only
+          cat > "$CADDYFILE" << CADDYEOF
+# Juniper Bible - TLS Mode: HTTP Only
+{
+  log {
+    level ERROR
+  }
+}
+
+:80 {
+  $site_config
+}
+CADDYEOF
+          ;;
+        5|*)
+          # Self-signed (default)
+          cat > "$CADDYFILE" << CADDYEOF
+# Juniper Bible - TLS Mode: Self-signed
+{
+  log {
+    level ERROR
+  }
+}
+
+$domain, :443 {
+  tls internal
+  $site_config
+}
+
+:80 {
+  redir https://{host}{uri} permanent
+}
+CADDYEOF
+          ;;
+      esac
+
+      chmod 644 "$CADDYFILE"
+      echo "✓ Caddyfile generated"
 
       echo "Rebuilding NixOS..."
       if nixos-rebuild switch; then

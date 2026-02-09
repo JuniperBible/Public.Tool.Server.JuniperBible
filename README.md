@@ -34,11 +34,13 @@ sudo ./juniper-host-linux-amd64 bootstrap --enthusiastic-yes --ssh-key-file=~/.s
 
 ### 4. Reboot & Configure
 
-After reboot, SSH in as the `deploy` user. The setup wizard runs automatically:
+After reboot, SSH in as `root` to run the setup wizard:
 
 ```bash
-ssh deploy@YOUR_SERVER_IP
+ssh root@YOUR_SERVER_IP
 ```
+
+Then use the `deploy` user for ongoing deployments.
 
 ## Deployment Options
 
@@ -114,12 +116,23 @@ sudo ./juniper-host-linux-amd64 install
 
 ### Setup Wizard
 
-The wizard runs automatically on first SSH login and configures:
+The wizard runs automatically on first SSH login as root and configures:
 
 1. **Hostname** - Server name
-2. **Domain** - For automatic HTTPS via Caddy
-3. **SSH Keys** - For the `deploy` user
-4. **Site Deployment** - Downloads and extracts Juniper Bible
+2. **Domain** - For Caddy web server
+3. **TLS Mode** - Certificate handling (see below)
+4. **SSH Keys** - For the `deploy` and `root` users
+5. **Site Deployment** - Downloads and extracts Juniper Bible
+
+### TLS Certificate Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| 1 - ACME HTTP-01 | Auto cert via HTTP challenge | DNS points directly to server |
+| 2 - ACME DNS-01 | Auto cert via Cloudflare DNS | Behind proxy (Cloudflare, etc.) |
+| 3 - Custom cert | Provide your own cert/key | Enterprise, existing certs |
+| 4 - HTTP only | No HTTPS | Local testing only |
+| 5 - Self-signed | Auto-generated, browser warning | **Default** - works everywhere |
 
 ### Manual Site Deployment
 
@@ -185,12 +198,18 @@ sudo nano /etc/nixos/configuration.nix
 sudo nixos-rebuild switch
 ```
 
-### Change Domain
+### Change Domain or TLS Mode
 
-```nix
-services.caddy.virtualHosts."your-domain.com".extraConfig = ''
-  ...
-'';
+Edit `/etc/caddy/Caddyfile` directly or re-run the wizard:
+
+```bash
+# Edit Caddyfile
+sudo nano /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+
+# Or delete the setup flag and re-run wizard
+sudo rm /etc/juniper-setup-complete
+/etc/setup-wizard.sh
 ```
 
 ### Add SSH Keys
@@ -228,7 +247,9 @@ Progress dots will appear every 5 seconds. Do not interrupt the process.
 
 - Ensure ports 80/443 are open on your firewall/VPS provider
 - Check Caddy logs: `sudo journalctl -u caddy`
-- Verify DNS points to server IP
+- For ACME HTTP-01: Verify DNS points directly to server IP (not proxied)
+- For ACME DNS-01: Verify Cloudflare API token has Zone:DNS:Edit permission
+- For self-signed: Browser will show certificate warning (this is normal)
 
 ### Site not loading
 

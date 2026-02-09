@@ -11,7 +11,17 @@ import (
 
 const (
 	nixosConfig   = "/etc/nixos/configuration.nix"
+	caddyfile     = "/etc/caddy/Caddyfile"
 	setupDoneFlag = "/etc/juniper-setup-complete"
+)
+
+// TLS mode constants
+const (
+	TLSModeACMEHTTP   = "1"
+	TLSModeACMEDNS    = "2"
+	TLSModeCustomCert = "3"
+	TLSModeHTTPOnly   = "4"
+	TLSModeSelfSigned = "5"
 )
 
 // Run executes the setup wizard
@@ -33,7 +43,7 @@ func Run(args []string) {
 	common.WaitForEnter("Press Enter to continue...")
 
 	// Step 1: Hostname
-	common.Step(1, 4, "Hostname")
+	common.Step(1, 5, "Hostname")
 	fmt.Printf("Current hostname: %s%s%s\n\n", common.Cyan, hostname, common.Reset)
 	var newHostname string
 	const maxRetries = 5
@@ -50,13 +60,8 @@ func Run(args []string) {
 	}
 
 	// Step 2: Domain
-	common.Step(2, 4, "Domain")
-	fmt.Println("Enter your domain for HTTPS (Caddy will auto-provision certificates).")
-	fmt.Println()
-	fmt.Println("Examples:")
-	fmt.Println("  - juniperbible.org")
-	fmt.Println("  - bible.example.com")
-	fmt.Println("  - localhost (for testing, no HTTPS)")
+	common.Step(2, 5, "Domain")
+	fmt.Println("Enter your domain (e.g., juniperbible.org)")
 	fmt.Println()
 	var domain string
 	for attempts := 0; attempts < maxRetries; attempts++ {
@@ -71,8 +76,48 @@ func Run(args []string) {
 		}
 	}
 
-	// Step 3: SSH Keys
-	common.Step(3, 4, "SSH Keys")
+	// Step 3: TLS Mode
+	common.Step(3, 5, "TLS Certificate Mode")
+	fmt.Println("How should HTTPS certificates be handled?")
+	fmt.Println()
+	fmt.Println("  1) ACME HTTP-01  - Auto cert, requires DNS pointing directly to this server")
+	fmt.Println("  2) ACME DNS-01   - Auto cert via Cloudflare DNS (works behind proxy)")
+	fmt.Println("  3) Custom cert   - Provide your own certificate files")
+	fmt.Println("  4) HTTP only     - No HTTPS (for testing only)")
+	fmt.Println("  5) Self-signed   - Works everywhere, browser shows warning (default)")
+	fmt.Println()
+
+	tlsMode := common.Prompt("TLS mode", "5")
+	var cfAPIToken, certPath, keyPath string
+
+	switch tlsMode {
+	case TLSModeACMEHTTP:
+		common.Info("Using ACME HTTP-01 challenge")
+	case TLSModeACMEDNS:
+		fmt.Println()
+		fmt.Println("Enter your Cloudflare API token (needs Zone:DNS:Edit permission):")
+		cfAPIToken = common.Prompt("CF API Token", "")
+		if cfAPIToken == "" {
+			common.Warning("API token required for DNS-01. Falling back to self-signed.")
+			tlsMode = TLSModeSelfSigned
+		}
+	case TLSModeCustomCert:
+		fmt.Println()
+		certPath = common.Prompt("Certificate path", "")
+		keyPath = common.Prompt("Key path", "")
+		if !common.FileExists(certPath) || !common.FileExists(keyPath) {
+			common.Warning("Certificate files not found. Falling back to self-signed.")
+			tlsMode = TLSModeSelfSigned
+		}
+	case TLSModeHTTPOnly:
+		common.Info("Using HTTP only (no TLS)")
+	default:
+		tlsMode = TLSModeSelfSigned
+		common.Info("Using self-signed certificate")
+	}
+
+	// Step 4: SSH Keys
+	common.Step(4, 5, "SSH Keys")
 	fmt.Println("Add SSH public keys for server access (deploy and root users).")
 	fmt.Println("Paste one key per line. Enter empty line when done.")
 	fmt.Println()
@@ -106,17 +151,27 @@ func Run(args []string) {
 		}
 	}
 
-	// Step 4: Deploy
-	common.Step(4, 4, "Deploy Site")
+	// Step 5: Deploy
+	common.Step(5, 5, "Deploy Site")
 	fmt.Println("Would you like to deploy Juniper Bible now?")
 	fmt.Println()
 	deployNow := common.Confirm("Deploy site?", true)
+
+	// TLS mode display name
+	tlsModeName := map[string]string{
+		TLSModeACMEHTTP:   "ACME HTTP-01",
+		TLSModeACMEDNS:    "ACME DNS-01 (Cloudflare)",
+		TLSModeCustomCert: "Custom certificate",
+		TLSModeHTTPOnly:   "HTTP only",
+		TLSModeSelfSigned: "Self-signed",
+	}[tlsMode]
 
 	// Summary
 	common.ClearScreen()
 	fmt.Printf("%sConfiguration Summary%s\n\n", common.Bold, common.Reset)
 	fmt.Printf("  Hostname: %s%s%s\n", common.Cyan, newHostname, common.Reset)
 	fmt.Printf("  Domain:   %s%s%s\n", common.Cyan, domain, common.Reset)
+	fmt.Printf("  TLS Mode: %s%s%s\n", common.Cyan, tlsModeName, common.Reset)
 	fmt.Printf("  SSH Keys: %s%d key(s)%s\n", common.Cyan, len(sshKeys), common.Reset)
 	deployStr := "No"
 	if deployNow {
@@ -141,11 +196,18 @@ func Run(args []string) {
 	}
 
 	// Update configuration
-	if err := updateConfig(newHostname, domain, sshKeys); err != nil {
+	if err := updateConfig(newHostname, sshKeys); err != nil {
 		common.Error(fmt.Sprintf("Failed to update configuration: %v", err))
 		os.Exit(1)
 	}
 	common.Success("Configuration updated")
+
+	// Generate Caddyfile
+	if err := generateCaddyfile(domain, tlsMode, cfAPIToken, certPath, keyPath); err != nil {
+		common.Error(fmt.Sprintf("Failed to generate Caddyfile: %v", err))
+		os.Exit(1)
+	}
+	common.Success("Caddyfile generated")
 
 	// Rebuild NixOS
 	fmt.Println()
@@ -217,7 +279,7 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-func updateConfig(hostname, domain string, sshKeys []string) error {
+func updateConfig(hostname string, sshKeys []string) error {
 	data, err := os.ReadFile(nixosConfig)
 	if err != nil {
 		return err
@@ -231,15 +293,6 @@ func updateConfig(hostname, domain string, sshKeys []string) error {
 	content = hostnameRe.ReplaceAllLiteralString(content, fmt.Sprintf(`networking.hostName = "%s"`, escapedHostname))
 	if content == originalContent {
 		return fmt.Errorf("failed to find hostname configuration in file")
-	}
-
-	// Update domain (escape for regex replacement)
-	beforeDomain := content
-	domainRe := regexp.MustCompile(`services\.caddy\.virtualHosts\."[^"]*"\.extraConfig`)
-	escapedDomain := escapeNixString(domain)
-	content = domainRe.ReplaceAllLiteralString(content, fmt.Sprintf(`services.caddy.virtualHosts."%s".extraConfig`, escapedDomain))
-	if content == beforeDomain {
-		return fmt.Errorf("failed to find domain configuration in file")
 	}
 
 	// Update SSH keys for both deploy and root users
@@ -279,6 +332,114 @@ func updateConfig(hostname, domain string, sshKeys []string) error {
 	}
 
 	return os.WriteFile(nixosConfig, []byte(content), 0600)
+}
+
+func generateCaddyfile(domain, tlsMode, cfAPIToken, certPath, keyPath string) error {
+	siteConfig := `root * /var/www/juniperbible
+    encode gzip
+    file_server {
+      precompressed br gzip
+    }
+
+    @static {
+      path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
+    }
+    header @static Cache-Control "public, max-age=31536000, immutable"
+
+    @bible {
+      path /bible/*
+    }
+    header @bible Cache-Control "public, max-age=86400"
+
+    header {
+      X-Content-Type-Options nosniff
+      X-Frame-Options DENY
+      Referrer-Policy strict-origin-when-cross-origin
+      Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }`
+
+	var content string
+
+	switch tlsMode {
+	case TLSModeACMEHTTP:
+		content = fmt.Sprintf(`# Juniper Bible - TLS Mode: ACME HTTP-01
+{
+  log {
+    level ERROR
+  }
+}
+
+%s {
+  %s
+  header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+`, domain, siteConfig)
+
+	case TLSModeACMEDNS:
+		content = fmt.Sprintf(`# Juniper Bible - TLS Mode: ACME DNS-01 (Cloudflare)
+{
+  log {
+    level ERROR
+  }
+}
+
+%s {
+  tls {
+    dns cloudflare %s
+  }
+  %s
+  header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+`, domain, cfAPIToken, siteConfig)
+
+	case TLSModeCustomCert:
+		content = fmt.Sprintf(`# Juniper Bible - TLS Mode: Custom Certificate
+{
+  log {
+    level ERROR
+  }
+}
+
+%s {
+  tls %s %s
+  %s
+  header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+`, domain, certPath, keyPath, siteConfig)
+
+	case TLSModeHTTPOnly:
+		content = fmt.Sprintf(`# Juniper Bible - TLS Mode: HTTP Only
+{
+  log {
+    level ERROR
+  }
+}
+
+:80 {
+  %s
+}
+`, siteConfig)
+
+	default: // TLSModeSelfSigned
+		content = fmt.Sprintf(`# Juniper Bible - TLS Mode: Self-signed
+{
+  log {
+    level ERROR
+  }
+}
+
+%s, :443 {
+  tls internal
+  %s
+}
+
+:80 {
+  redir https://{host}{uri} permanent
+}
+`, domain, siteConfig)
+	}
+
+	return os.WriteFile(caddyfile, []byte(content), 0644)
 }
 
 // escapeNixString escapes special characters for Nix string literals
