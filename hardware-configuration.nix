@@ -20,10 +20,12 @@
     fsType = "ext4";
   };
 
-  fileSystems."/boot" = {
-    device = "/dev/disk/by-label/boot";
-    fsType = "vfat";
-  };
+  # Note: For BIOS mode (Vultr default), no separate /boot partition needed.
+  # For UEFI mode, uncomment:
+  # fileSystems."/boot" = {
+  #   device = "/dev/disk/by-label/boot";
+  #   fsType = "vfat";
+  # };
 
   swapDevices = [ ];
 
