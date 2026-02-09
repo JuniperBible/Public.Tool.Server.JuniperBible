@@ -218,7 +218,7 @@
 
       # Gather system info
       SYS_HOSTNAME=$(hostname)
-      SYS_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "N/A")
+      SYS_IP=$(hostname -i 2>/dev/null | awk '{print $1}' || ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '^127\.' | head -1 || echo "N/A")
       SYS_OS=$(grep VERSION_ID /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "NixOS")
       SYS_KERNEL=$(uname -r)
 
@@ -387,8 +387,8 @@
       echo "Setup Complete!"
       echo ""
       [[ "$domain" != "localhost" ]] && echo "  https://$domain" || echo "  http://localhost"
-      echo "  ssh deploy@$(hostname -I | awk '{print $1}')"
-      echo "  ssh root@$(hostname -I | awk '{print $1}')  (for admin tasks)"
+      echo "  ssh deploy@$SYS_IP"
+      echo "  ssh root@$SYS_IP  (for admin tasks)"
       echo ""
     '';
   };
