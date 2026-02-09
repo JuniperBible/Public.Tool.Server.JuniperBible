@@ -2,6 +2,7 @@ package common
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -112,7 +113,7 @@ type HTTPError struct {
 }
 
 func (e *HTTPError) Error() string {
-	return "HTTP " + string(rune(e.StatusCode)) + " from " + e.URL
+	return fmt.Sprintf("HTTP %d from %s", e.StatusCode, e.URL)
 }
 
 // IsValidSSHKey validates an SSH public key format

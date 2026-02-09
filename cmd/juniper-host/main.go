@@ -48,17 +48,25 @@ Commands:
   version      Show version
 
 Bootstrap Options:
-  --disk=DEVICE    Target disk (auto-detects if not specified)
-  --ssh-key=KEY    SSH public key (prompts if not specified)
-  --yes            Skip confirmation prompts
+  --disk=DEVICE        Target disk (auto-detects if not specified)
+  --ssh-key=KEY        SSH public key (prompts if not specified)
+  --ssh-key-file=PATH  Path to SSH public key file (e.g., ~/.ssh/id_ed25519.pub)
+  --yes                Skip all confirmation prompts
+  --enthusiastic-yes   Auto-detect disk, skip confirmations, only prompt for SSH key
 
 Examples:
   # Auto-detect disk, prompt for SSH key
   juniper-host bootstrap
 
-  # Specify disk and SSH key
+  # Quick install: auto-detect everything, just paste your SSH key
+  juniper-host bootstrap --enthusiastic-yes
+
+  # Use SSH key from file
+  juniper-host bootstrap --enthusiastic-yes --ssh-key-file=~/.ssh/id_ed25519.pub
+
+  # Specify disk and SSH key inline
   juniper-host bootstrap --disk=/dev/vda --ssh-key="ssh-ed25519 AAAA..."
 
-  # Full automation (no prompts)
+  # Full automation (no prompts at all)
   juniper-host bootstrap --disk=/dev/vda --ssh-key="ssh-ed25519 AAAA..." --yes`)
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Run executes a command and streams output to stdout/stderr
@@ -87,4 +88,40 @@ func BlockDeviceExists(path string) bool {
 func IsMounted(path string) bool {
 	err := RunQuiet("mountpoint", "-q", path)
 	return err == nil
+}
+
+// RunWithProgress runs a command with a progress indicator (dots every 5 seconds)
+// Use for long-running commands like nixos-install that may take 10-30 minutes
+func RunWithProgress(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	// Progress indicator goroutine
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				fmt.Print(".")
+			}
+		}
+	}()
+
+	// Wait for command to complete
+	err := cmd.Wait()
+	close(done)
+	fmt.Println() // Newline after progress dots
+
+	return err
 }

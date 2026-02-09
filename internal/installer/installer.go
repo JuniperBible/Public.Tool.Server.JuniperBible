@@ -63,8 +63,11 @@ func Run(args []string) {
 
 	// Step 3: Install NixOS
 	fmt.Println()
-	common.Info("Installing NixOS (this takes a few minutes)...")
-	if err := common.Run("nixos-install", "--no-root-passwd"); err != nil {
+	common.Info("Installing NixOS...")
+	common.Warning("This takes 10-30 minutes on VPS (downloading packages from cache.nixos.org)")
+	common.Info("Progress dots will appear every 5 seconds. Do NOT interrupt.")
+	fmt.Println()
+	if err := common.RunWithProgress("nixos-install", "--no-root-passwd"); err != nil {
 		common.Error(fmt.Sprintf("Installation failed: %v", err))
 		os.Exit(1)
 	}

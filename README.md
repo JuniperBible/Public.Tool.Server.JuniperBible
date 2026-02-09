@@ -24,7 +24,12 @@ ping -c 3 github.com
 ```bash
 # Download and run (auto-detects disk)
 curl -fsSL https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases/latest/download/juniper-host-linux-amd64.tar.gz | tar -xzf -
-sudo ./juniper-host-linux-amd64 bootstrap
+
+# Quick install: auto-detect everything, just paste your SSH key when prompted
+sudo ./juniper-host-linux-amd64 bootstrap --enthusiastic-yes
+
+# Or with SSH key file (no prompts needed)
+sudo ./juniper-host-linux-amd64 bootstrap --enthusiastic-yes --ssh-key-file=~/.ssh/id_ed25519.pub
 ```
 
 ### 4. Reboot & Configure
@@ -101,7 +106,9 @@ sudo ./juniper-host-linux-amd64 install
 |--------|-------------|
 | `--disk=DEVICE` | Target disk (auto-detects: vda, sda, nvme0n1, xvda) |
 | `--ssh-key=KEY` | SSH public key (prompts if not specified) |
-| `--yes` | Skip confirmation prompts |
+| `--ssh-key-file=PATH` | Path to SSH public key file (e.g., ~/.ssh/id_ed25519.pub) |
+| `--yes` | Skip all confirmation prompts |
+| `--enthusiastic-yes` | Auto-detect disk, skip confirmations, only prompt for SSH key |
 
 ## Post-Installation
 
@@ -202,6 +209,14 @@ networking.hostName = "your-hostname";
 ```
 
 ## Troubleshooting
+
+### Bootstrap appears to hang during installation
+
+This is normal. The `nixos-install` step takes **10-30 minutes** on VPS providers due to:
+- Downloading packages from cache.nixos.org
+- Building NixOS system configuration
+
+Progress dots will appear every 5 seconds. Do not interrupt the process.
 
 ### Can't SSH after reboot
 

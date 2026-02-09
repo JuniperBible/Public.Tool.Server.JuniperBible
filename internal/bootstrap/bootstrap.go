@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/common"
@@ -14,8 +15,26 @@ func Run(args []string) {
 	fs := flag.NewFlagSet("bootstrap", flag.ExitOnError)
 	disk := fs.String("disk", "", "Target disk (auto-detect if not specified)")
 	sshKey := fs.String("ssh-key", "", "SSH public key")
+	sshKeyFile := fs.String("ssh-key-file", "", "Path to SSH public key file")
 	yes := fs.Bool("yes", false, "Skip confirmation prompts")
+	enthusiasticYes := fs.Bool("enthusiastic-yes", false, "Auto-detect everything, only prompt for SSH key if not provided")
 	fs.Parse(args)
+
+	// --enthusiastic-yes implies --yes for disk confirmation
+	if *enthusiasticYes {
+		*yes = true
+	}
+
+	// Read SSH key from file if provided
+	if *sshKeyFile != "" && *sshKey == "" {
+		data, err := os.ReadFile(*sshKeyFile)
+		if err != nil {
+			common.Error(fmt.Sprintf("Failed to read SSH key file: %v", err))
+			os.Exit(1)
+		}
+		keyStr := strings.TrimSpace(string(data))
+		sshKey = &keyStr
+	}
 
 	// Check root
 	if !common.IsRoot() {
@@ -98,8 +117,9 @@ func Run(args []string) {
 	}
 
 	// Get SSH key
+	// With --enthusiastic-yes, still prompt for SSH key if not provided (safety first)
 	key := *sshKey
-	if key == "" && !*yes {
+	if key == "" {
 		fmt.Println()
 		key = common.Prompt("Enter your SSH public key (ssh-ed25519 or ssh-rsa)", "")
 	}
@@ -114,8 +134,12 @@ func Run(args []string) {
 	}
 
 	// Install NixOS
-	common.Info("Installing NixOS (this takes a few minutes)...")
-	if err := common.Run("nixos-install", "--no-root-passwd"); err != nil {
+	fmt.Println()
+	common.Info("Installing NixOS...")
+	common.Warning("This takes 10-30 minutes on VPS (downloading packages from cache.nixos.org)")
+	common.Info("Progress dots will appear every 5 seconds. Do NOT interrupt.")
+	fmt.Println()
+	if err := common.RunWithProgress("nixos-install", "--no-root-passwd"); err != nil {
 		common.Error(fmt.Sprintf("Installation failed: %v", err))
 		os.Exit(1)
 	}
