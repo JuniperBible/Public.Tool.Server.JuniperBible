@@ -35,7 +35,14 @@ func Run(args []string) {
 	// Step 1: Hostname
 	common.Step(1, 4, "Hostname")
 	fmt.Printf("Current hostname: %s%s%s\n\n", common.Cyan, hostname, common.Reset)
-	newHostname := common.Prompt("Enter new hostname (or press Enter to keep current)", hostname)
+	var newHostname string
+	for {
+		newHostname = common.Prompt("Enter new hostname (or press Enter to keep current)", hostname)
+		if common.IsValidHostname(newHostname) {
+			break
+		}
+		common.Error("Invalid hostname. Use alphanumerics and hyphens only (1-63 chars).")
+	}
 
 	// Step 2: Domain
 	common.Step(2, 4, "Domain")
@@ -46,7 +53,14 @@ func Run(args []string) {
 	fmt.Println("  - bible.example.com")
 	fmt.Println("  - localhost (for testing, no HTTPS)")
 	fmt.Println()
-	domain := common.Prompt("Domain", "localhost")
+	var domain string
+	for {
+		domain = common.Prompt("Domain", "localhost")
+		if common.IsValidDomain(domain) {
+			break
+		}
+		common.Error("Invalid domain. Use alphanumerics, hyphens, and dots only.")
+	}
 
 	// Step 3: SSH Keys
 	common.Step(3, 4, "SSH Keys")
@@ -55,8 +69,13 @@ func Run(args []string) {
 	fmt.Println()
 	fmt.Printf("%sWARNING: If you don't add a key, you may be locked out!%s\n\n", common.Yellow, common.Reset)
 
+	const maxSSHKeys = 50
 	var sshKeys []string
 	for {
+		if len(sshKeys) >= maxSSHKeys {
+			common.Warning(fmt.Sprintf("Maximum of %d SSH keys reached.", maxSSHKeys))
+			break
+		}
 		key := common.Prompt("SSH key (or Enter to finish)", "")
 		if key == "" {
 			break

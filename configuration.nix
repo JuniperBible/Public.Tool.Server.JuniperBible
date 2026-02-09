@@ -66,7 +66,7 @@
 
   # Security hardening
   boot.kernel.sysctl = {
-    # Network hardening
+    # Network hardening (IPv4)
     "net.ipv4.tcp_syncookies" = 1;
     "net.ipv4.conf.all.send_redirects" = 0;
     "net.ipv4.conf.default.send_redirects" = 0;
@@ -78,11 +78,24 @@
     "net.ipv4.conf.default.accept_source_route" = 0;
     "net.ipv4.icmp_echo_ignore_broadcasts" = 1;
     "net.ipv4.icmp_ignore_bogus_error_responses" = 1;
+    # Network hardening (IPv6)
+    "net.ipv6.conf.all.accept_redirects" = 0;
+    "net.ipv6.conf.default.accept_redirects" = 0;
+    "net.ipv6.conf.all.accept_source_route" = 0;
+    "net.ipv6.conf.default.accept_source_route" = 0;
+    "net.ipv6.conf.all.accept_ra" = 0;
+    "net.ipv6.conf.default.accept_ra" = 0;
     # Kernel hardening
     "kernel.yama.ptrace_scope" = 1;
     "kernel.kptr_restrict" = 2;
     "kernel.dmesg_restrict" = 1;
     "kernel.perf_event_paranoid" = 3;
+    "kernel.sysrq" = 0;
+    "kernel.randomize_va_space" = 2;
+    # Filesystem hardening
+    "fs.suid_dumpable" = 0;
+    "fs.protected_symlinks" = 1;
+    "fs.protected_hardlinks" = 1;
   };
 
   # Timezone
@@ -126,21 +139,20 @@
       DEPLOY_DIR="/var/www/juniperbible"
       TEMP_DIR=$(mktemp -d)
 
+      # Cleanup on exit/interrupt
+      trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
+
       echo "Downloading latest release..."
       if ! curl -fsSL "$RELEASE_URL" -o "$TEMP_DIR/site.tar.xz"; then
         echo "ERROR: Failed to download release from $RELEASE_URL"
         echo "Please check that a release exists with site.tar.xz attached."
-        rm -rf "$TEMP_DIR"
         exit 1
       fi
 
       echo "Extracting to $DEPLOY_DIR..."
       rm -rf "$DEPLOY_DIR"/*
       mkdir -p "$DEPLOY_DIR"
-      tar -xJf "$TEMP_DIR/site.tar.xz" -C "$DEPLOY_DIR"
-
-      echo "Cleaning up..."
-      rm -rf "$TEMP_DIR"
+      tar -xJf "$TEMP_DIR/site.tar.xz" -C "$DEPLOY_DIR" --no-same-owner
 
       echo "Done! Site deployed to $DEPLOY_DIR"
     '';
@@ -328,6 +340,14 @@
     settings = {
       PasswordAuthentication = false;
       PermitRootLogin = "no";
+      PermitEmptyPasswords = false;
+      X11Forwarding = false;
+      AllowTcpForwarding = false;
+      AllowAgentForwarding = false;
+      MaxAuthTries = 3;
+      MaxSessions = 3;
+      ClientAliveInterval = 300;
+      ClientAliveCountMax = 2;
     };
   };
 

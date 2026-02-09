@@ -261,7 +261,7 @@ func replaceFirst(s, old, new string) string {
 }
 
 func indexOf(s, substr string) int {
-	if substr == "" {
+	if substr == "" || len(substr) > len(s) {
 		return -1
 	}
 	for i := 0; i <= len(s)-len(substr); i++ {

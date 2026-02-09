@@ -88,8 +88,18 @@ func GetPartitions(disk string) (biosGrub, esp, root string) {
 	return disk + "1", disk + "2", disk + "3"
 }
 
+// MaxDownloadSize is the maximum file size for downloads (100MB)
+const MaxDownloadSize = 100 * 1024 * 1024
+
 // DownloadFile downloads a file from URL to destination
 func DownloadFile(url, dest string) error {
+	// Check if destination is a symlink (prevent symlink attacks)
+	if info, err := os.Lstat(dest); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("destination is a symlink: %s", dest)
+		}
+	}
+
 	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -101,12 +111,15 @@ func DownloadFile(url, dest string) error {
 		return &HTTPError{StatusCode: resp.StatusCode, URL: url}
 	}
 
-	out, err := os.Create(dest)
+	// Create file with restrictive permissions
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
 
-	_, copyErr := io.Copy(out, resp.Body)
+	// Limit download size to prevent DoS
+	limitedReader := io.LimitReader(resp.Body, MaxDownloadSize)
+	_, copyErr := io.Copy(out, limitedReader)
 	closeErr := out.Close()
 
 	if copyErr != nil {
@@ -125,11 +138,18 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d from %s", e.StatusCode, e.URL)
 }
 
+// MaxSSHKeyLength is the maximum allowed SSH key length
+const MaxSSHKeyLength = 8192
+
 // IsValidSSHKey validates an SSH public key format
 func IsValidSSHKey(key string) bool {
 	key = strings.TrimSpace(key)
 	// Reject keys with newlines (multi-key injection)
 	if strings.ContainsAny(key, "\n\r") {
+		return false
+	}
+	// Reject extremely long keys
+	if len(key) > MaxSSHKeyLength {
 		return false
 	}
 	// Validate format: type + space + base64 + optional comment
@@ -143,5 +163,30 @@ func IsValidDiskPath(path string) bool {
 	// Match standard Linux disk paths: /dev/vda, /dev/sda, /dev/nvme0n1, /dev/xvda, etc.
 	pattern := `^/dev/(nvme\d+n\d+|[svx]d[a-z]|loop\d+)$`
 	matched, _ := regexp.MatchString(pattern, path)
+	return matched
+}
+
+// IsValidHostname validates a hostname format
+func IsValidHostname(hostname string) bool {
+	if len(hostname) == 0 || len(hostname) > 253 {
+		return false
+	}
+	// RFC 1123: alphanumeric and hyphens, cannot start/end with hyphen
+	pattern := `^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`
+	matched, _ := regexp.MatchString(pattern, hostname)
+	return matched
+}
+
+// IsValidDomain validates a domain name format
+func IsValidDomain(domain string) bool {
+	if domain == "localhost" {
+		return true
+	}
+	if len(domain) == 0 || len(domain) > 253 {
+		return false
+	}
+	// RFC 1035: labels separated by dots, each label alphanumeric with hyphens
+	pattern := `^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`
+	matched, _ := regexp.MatchString(pattern, domain)
 	return matched
 }
