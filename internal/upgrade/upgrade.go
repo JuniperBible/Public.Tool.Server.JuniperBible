@@ -159,34 +159,38 @@ echo "==> Backing up current configuration..."
 cp "$CONFIG" "$BACKUP"
 
 echo "==> Extracting SSH keys..."
-DEPLOY_KEYS=$(grep -A50 'users.users.deploy.openssh.authorizedKeys.keys' "$CONFIG" | grep -oP '^\s+"[^"]+' | head -20 || true)
-ROOT_KEYS=$(grep -A50 'users.users.root.openssh.authorizedKeys.keys' "$CONFIG" | grep -oP '^\s+"[^"]+' | head -20 || true)
+# Extract only actual SSH keys (ssh-ed25519, ssh-rsa, ecdsa-*)
+# The pattern must match: "ssh-TYPE BASE64KEY [COMMENT]"
+DEPLOY_KEYS=$(grep -A20 'users.users.deploy.openssh.authorizedKeys.keys' "$CONFIG" | grep -oP '^\s*"(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+)\s+[A-Za-z0-9+/]+=*(\s+[^"]*)?(?=")' | head -20 || true)
+ROOT_KEYS=$(grep -A20 'users.users.root.openssh.authorizedKeys.keys' "$CONFIG" | grep -oP '^\s*"(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+)\s+[A-Za-z0-9+/]+=*(\s+[^"]*)?(?=")' | head -20 || true)
 
 echo "==> Downloading latest configuration..."
 curl -fsSL "$CONFIG_URL" -o "$CONFIG.new"
 
 echo "==> Injecting SSH keys..."
 if [ -n "$DEPLOY_KEYS" ]; then
-  # Replace deploy user keys placeholder
-  KEYS_ESCAPED=$(echo "$DEPLOY_KEYS" | sed 's/"/\\"/g')
+  # Remove the placeholder comment
   sed -i '/users.users.deploy.openssh.authorizedKeys.keys = \[/,/\];/{
     /# "ssh-ed25519 AAAA... your-key-here"/d
   }' "$CONFIG.new"
-  # Inject actual keys
-  for key in $DEPLOY_KEYS; do
-    key_clean=$(echo "$key" | sed 's/^\s*//')
-    sed -i "/users.users.deploy.openssh.authorizedKeys.keys = \[/a\\    $key_clean" "$CONFIG.new"
-  done
+  # Inject actual keys (each key is a complete line with the opening quote)
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
+    # key already has the opening quote, add closing quote
+    key_line=$(echo "$key" | sed 's/^\s*/    /')'"'
+    sed -i "/users.users.deploy.openssh.authorizedKeys.keys = \[/a\\$key_line" "$CONFIG.new"
+  done <<< "$DEPLOY_KEYS"
 fi
 
 if [ -n "$ROOT_KEYS" ]; then
   sed -i '/users.users.root.openssh.authorizedKeys.keys = \[/,/\];/{
     /# "ssh-ed25519 AAAA... your-key-here"/d
   }' "$CONFIG.new"
-  for key in $ROOT_KEYS; do
-    key_clean=$(echo "$key" | sed 's/^\s*//')
-    sed -i "/users.users.root.openssh.authorizedKeys.keys = \[/a\\    $key_clean" "$CONFIG.new"
-  done
+  while IFS= read -r key; do
+    [ -z "$key" ] && continue
+    key_line=$(echo "$key" | sed 's/^\s*/    /')'"'
+    sed -i "/users.users.root.openssh.authorizedKeys.keys = \[/a\\$key_line" "$CONFIG.new"
+  done <<< "$ROOT_KEYS"
 fi
 
 echo "==> Showing diff..."
