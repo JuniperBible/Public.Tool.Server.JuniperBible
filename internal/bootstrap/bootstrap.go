@@ -241,8 +241,13 @@ func injectBootDevice(disk string) error {
 	}
 
 	content := string(data)
+	// Escape backslashes first, then quotes (order matters for Nix strings)
+	escapedDisk := strings.ReplaceAll(disk, `\`, `\\`)
+	escapedDisk = strings.ReplaceAll(escapedDisk, `"`, `\"`)
+	escapedDisk = strings.ReplaceAll(escapedDisk, `$`, `\$`)
+
 	// Replace the default /dev/vda with the actual disk
-	content = strings.Replace(content, `device = "/dev/vda";`, fmt.Sprintf(`device = "%s";`, disk), 1)
+	content = strings.Replace(content, `device = "/dev/vda";`, fmt.Sprintf(`device = "%s";`, escapedDisk), 1)
 
 	return os.WriteFile(configPath, []byte(content), 0600)
 }
@@ -256,6 +261,9 @@ func replaceFirst(s, old, new string) string {
 }
 
 func indexOf(s, substr string) int {
+	if substr == "" {
+		return -1
+	}
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return i

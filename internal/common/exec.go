@@ -51,14 +51,16 @@ func RunWithOutput(name string, args ...string) (string, error) {
 	reader := bufio.NewReader(stdout)
 	for {
 		line, err := reader.ReadString('\n')
+		if line != "" {
+			fmt.Print(line)
+			output.WriteString(line)
+		}
 		if err != nil {
 			if err != io.EOF {
 				return output.String(), err
 			}
 			break
 		}
-		fmt.Print(line)
-		output.WriteString(line)
 	}
 
 	return output.String(), cmd.Wait()

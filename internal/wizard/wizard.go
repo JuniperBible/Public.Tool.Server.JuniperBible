@@ -129,7 +129,7 @@ func Run(args []string) {
 	common.Success("NixOS rebuilt successfully")
 
 	// Mark setup complete
-	if err := os.WriteFile(setupDoneFlag, []byte{}, 0644); err != nil {
+	if err := os.WriteFile(setupDoneFlag, []byte{}, 0600); err != nil {
 		common.Warning(fmt.Sprintf("Failed to create setup flag: %v", err))
 	}
 

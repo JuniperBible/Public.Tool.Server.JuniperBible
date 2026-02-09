@@ -42,10 +42,11 @@ Usage:
   juniper-host <command> [options]
 
 Commands:
-  bootstrap    Full installation (partition, format, install NixOS)
-  install      Install NixOS (requires pre-mounted /mnt)
+  bootstrap    Full automated install (partition, format, install NixOS)
+  install      Install NixOS to pre-mounted /mnt
   wizard       Interactive setup wizard (run after first boot)
   version      Show version
+  help         Show this help message
 
 Bootstrap Options:
   --disk=DEVICE        Target disk (auto-detects if not specified)
