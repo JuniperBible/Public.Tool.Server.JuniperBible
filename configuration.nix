@@ -238,12 +238,12 @@
       # Input validation functions
       validate_hostname() {
         local h="$1"
-        [[ ${#h} -gt 0 && ${#h} -le 63 && "$h" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]
+        [[ ''${#h} -gt 0 && ''${#h} -le 63 && "$h" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]
       }
       validate_domain() {
         local d="$1"
         [[ "$d" == "localhost" ]] && return 0
-        [[ ${#d} -gt 0 && ${#d} -le 253 && "$d" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]
+        [[ ''${#d} -gt 0 && ''${#d} -le 253 && "$d" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]
       }
       escape_sed() {
         printf '%s\n' "$1" | sed -e 's/[\/&|]/\\&/g' -e 's/"/\\"/g'
