@@ -100,6 +100,7 @@ sudo ./juniper-host-linux-amd64 install
 | `bootstrap` | Full install (partition, format, install NixOS) |
 | `install` | Install NixOS (requires pre-mounted /mnt) |
 | `wizard` | Interactive setup wizard (run after first boot) |
+| `upgrade` | Update configuration on local or remote host |
 | `version` | Show version |
 
 ## Bootstrap Options
@@ -111,6 +112,15 @@ sudo ./juniper-host-linux-amd64 install
 | `--ssh-key-file=PATH` | Path to SSH public key file (e.g., ~/.ssh/id_ed25519.pub) |
 | `--yes` | Skip all confirmation prompts |
 | `--enthusiastic-yes` | Auto-detect disk, skip confirmations, only prompt for SSH key |
+
+## Upgrade Options
+
+| Option | Description |
+|--------|-------------|
+| `--host=HOST` | Remote host (e.g., root@server or root@192.168.1.1) |
+| `-i PATH` | SSH identity file (optional) |
+| `--yes` | Skip confirmation prompts |
+| `--config-only` | Only update configuration, don't rebuild NixOS |
 
 ## Post-Installation
 
@@ -150,6 +160,26 @@ make deploy-vps VPS=deploy@your-server:/var/www/juniperbible
 ssh deploy@your-server
 deploy-juniper
 ```
+
+### Updating the Server Configuration
+
+```bash
+# From your local machine (remote upgrade)
+juniper-host upgrade --host=root@your-server
+
+# From the server itself (local upgrade)
+sudo juniper-host upgrade
+
+# Preview changes without rebuilding
+juniper-host upgrade --host=root@your-server --config-only
+```
+
+The upgrade command:
+1. Backs up current configuration
+2. Downloads latest configuration from GitHub
+3. Preserves existing SSH keys
+4. Shows diff of changes
+5. Applies new configuration and rebuilds NixOS
 
 ## Server Architecture
 
