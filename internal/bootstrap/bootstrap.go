@@ -72,7 +72,8 @@ func Run(args []string) {
 		}
 	}
 
-	part1, part2 := common.GetPartitions(targetDisk)
+	// Get partition paths: bios_grub (1), ESP (2), root (3)
+	_, espPart, rootPart := common.GetPartitions(targetDisk)
 
 	// Partition
 	common.Info("Partitioning disk...")
@@ -82,9 +83,9 @@ func Run(args []string) {
 	}
 	time.Sleep(2 * time.Second)
 
-	// Format
+	// Format (only ESP and root - bios_grub partition is not formatted)
 	common.Info("Formatting partitions...")
-	if err := format(part1, part2); err != nil {
+	if err := format(espPart, rootPart); err != nil {
 		common.Error(fmt.Sprintf("Formatting failed: %v", err))
 		os.Exit(1)
 	}
@@ -96,7 +97,7 @@ func Run(args []string) {
 
 	// Mount
 	common.Info("Mounting filesystems...")
-	if err := mount(part1, part2); err != nil {
+	if err := mount(espPart, rootPart); err != nil {
 		common.Error(fmt.Sprintf("Mount failed: %v", err))
 		os.Exit(1)
 	}
@@ -160,35 +161,47 @@ func Run(args []string) {
 }
 
 func partition(disk string) error {
+	// Partition layout for hybrid BIOS/UEFI boot with GPT:
+	// 1. BIOS Boot Partition (1MB) - required for GRUB on GPT+BIOS
+	// 2. EFI System Partition (512MB) - for UEFI boot
+	// 3. Root partition (rest of disk)
 	cmds := [][]string{
 		{"parted", disk, "--", "mklabel", "gpt"},
-		{"parted", disk, "--", "mkpart", "ESP", "fat32", "1MB", "512MB"},
-		{"parted", disk, "--", "set", "1", "esp", "on"},
-		{"parted", disk, "--", "mkpart", "primary", "512MB", "100%"},
+		{"parted", disk, "--", "mkpart", "bios_grub", "1MB", "2MB"},
+		{"parted", disk, "--", "set", "1", "bios_grub", "on"},
+		{"parted", disk, "--", "mkpart", "ESP", "fat32", "2MB", "514MB"},
+		{"parted", disk, "--", "set", "2", "esp", "on"},
+		{"parted", disk, "--", "mkpart", "primary", "514MB", "100%"},
 	}
 	for _, cmd := range cmds {
 		if err := common.Run(cmd[0], cmd[1:]...); err != nil {
 			return err
 		}
 	}
+	// Sync partition table to kernel
+	common.RunQuiet("partprobe", disk)
 	return nil
 }
 
-func format(part1, part2 string) error {
-	if err := common.Run("mkfs.fat", "-F", "32", "-n", "boot", part1); err != nil {
+func format(espPart, rootPart string) error {
+	// Format ESP as FAT32
+	if err := common.Run("mkfs.fat", "-F", "32", "-n", "boot", espPart); err != nil {
 		return err
 	}
-	return common.Run("mkfs.ext4", "-F", "-L", "nixos", part2)
+	// Format root as ext4
+	return common.Run("mkfs.ext4", "-F", "-L", "nixos", rootPart)
 }
 
-func mount(part1, part2 string) error {
-	if err := common.Run("mount", part2, "/mnt"); err != nil {
+func mount(espPart, rootPart string) error {
+	// Mount root partition first
+	if err := common.Run("mount", rootPart, "/mnt"); err != nil {
 		return err
 	}
+	// Create and mount boot directory
 	if err := os.MkdirAll("/mnt/boot", 0755); err != nil {
 		return err
 	}
-	return common.Run("mount", part1, "/mnt/boot")
+	return common.Run("mount", espPart, "/mnt/boot")
 }
 
 func injectSSHKey(key string) error {
