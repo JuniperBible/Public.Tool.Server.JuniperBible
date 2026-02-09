@@ -102,6 +102,11 @@ const MaxDownloadSize = 100 * 1024 * 1024
 
 // DownloadFile downloads a file from URL to destination
 func DownloadFile(url, dest string) error {
+	// Validate URL scheme (only allow https for security)
+	if !strings.HasPrefix(url, "https://") {
+		return fmt.Errorf("only HTTPS URLs are allowed: %s", url)
+	}
+
 	// Check if destination is a symlink (prevent symlink attacks)
 	if info, err := os.Lstat(dest); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
@@ -126,15 +131,25 @@ func DownloadFile(url, dest string) error {
 		return err
 	}
 
-	// Limit download size to prevent DoS
-	limitedReader := io.LimitReader(resp.Body, MaxDownloadSize)
-	_, copyErr := io.Copy(out, limitedReader)
+	// Limit download size to prevent DoS, track bytes written
+	limitedReader := io.LimitReader(resp.Body, MaxDownloadSize+1) // +1 to detect truncation
+	written, copyErr := io.Copy(out, limitedReader)
 	closeErr := out.Close()
 
 	if copyErr != nil {
 		return copyErr
 	}
-	return closeErr
+	if closeErr != nil {
+		return closeErr
+	}
+
+	// Check if download was truncated
+	if written > MaxDownloadSize {
+		os.Remove(dest) // Clean up partial file
+		return fmt.Errorf("download exceeded maximum size of %d bytes", MaxDownloadSize)
+	}
+
+	return nil
 }
 
 // HTTPError represents an HTTP error

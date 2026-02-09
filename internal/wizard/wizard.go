@@ -93,7 +93,7 @@ func Run(args []string) {
 			sshKeys = append(sshKeys, key)
 			common.Success("Key added")
 		} else {
-			common.Error("Invalid key format. Keys should start with ssh-ed25519, ssh-rsa, or ecdsa-*")
+			common.Error("Invalid key format. Keys should be: ssh-ed25519, ssh-rsa, or ecdsa-sha2-nistp256/384/521")
 		}
 	}
 
@@ -238,6 +238,8 @@ func updateConfig(hostname, domain string, sshKeys []string) error {
 
 	// Update SSH keys for both deploy and root users
 	if len(sshKeys) > 0 {
+		beforeSSHKeys := content
+
 		// Build the keys list
 		var keysList strings.Builder
 		for _, key := range sshKeys {
@@ -263,6 +265,11 @@ func updateConfig(hostname, domain string, sshKeys []string) error {
 
 		rootKeysRe := regexp.MustCompile(`users\.users\.root\.openssh\.authorizedKeys\.keys = \[[\s\S]*?\];`)
 		content = rootKeysRe.ReplaceAllLiteralString(content, rootKeysNix.String())
+
+		// Verify SSH keys were inserted
+		if content == beforeSSHKeys {
+			return fmt.Errorf("failed to find SSH key configuration sections in file")
+		}
 	}
 
 	return os.WriteFile(nixosConfig, []byte(content), 0600)

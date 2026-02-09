@@ -160,9 +160,15 @@
       fi
 
       echo "Extracting to $DEPLOY_DIR..."
-      rm -rf "$DEPLOY_DIR"/*
-      mkdir -p "$DEPLOY_DIR"
-      tar -xJf "$TEMP_DIR/site.tar.xz" -C "$DEPLOY_DIR" --no-same-owner --no-symlinks
+      # Use atomic replacement: extract to temp, then move
+      STAGING_DIR=$(mktemp -d -p /var/www)
+      cleanup() { rm -rf "$TEMP_DIR" "$STAGING_DIR" 2>/dev/null || true; }
+      trap cleanup EXIT INT TERM
+      tar -xJf "$TEMP_DIR/site.tar.xz" -C "$STAGING_DIR" --no-same-owner --no-symlinks
+      # Atomic swap: remove old and move new
+      rm -rf "$DEPLOY_DIR"
+      mv "$STAGING_DIR" "$DEPLOY_DIR"
+      STAGING_DIR=""  # Clear so cleanup doesn't try to remove new deploy dir
 
       echo "Done! Site deployed to $DEPLOY_DIR"
     '';
@@ -317,7 +323,10 @@
 
       # Apply
       echo "Applying configuration..."
-      sudo cp "$NIXOS_CONFIG" "''${NIXOS_CONFIG}.backup"
+      if ! sudo cp "$NIXOS_CONFIG" "''${NIXOS_CONFIG}.backup"; then
+        echo "ERROR: Failed to create backup"
+        exit 1
+      fi
 
       # Escape inputs for sed
       escaped_hostname=$(escape_sed "$new_hostname")

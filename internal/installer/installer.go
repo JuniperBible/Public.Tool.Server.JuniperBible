@@ -45,12 +45,10 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
-	// Verify /mnt looks like a valid installation target
-	if _, err := os.Stat("/mnt/etc"); err != nil {
-		if err := os.MkdirAll("/mnt/etc/nixos", 0755); err != nil {
-			common.Error(fmt.Sprintf("Failed to create /mnt/etc/nixos: %v", err))
-			os.Exit(1)
-		}
+	// Ensure /mnt/etc/nixos exists for configuration
+	if err := os.MkdirAll("/mnt/etc/nixos", 0755); err != nil {
+		common.Error(fmt.Sprintf("Failed to create /mnt/etc/nixos: %v", err))
+		os.Exit(1)
 	}
 
 	// Step 1: Generate hardware config

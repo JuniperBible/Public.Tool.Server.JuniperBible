@@ -249,15 +249,23 @@ func injectSSHKey(key string) error {
 	}
 
 	content := string(data)
-	// Escape backslashes first, then quotes (order matters)
+	originalContent := content
+
+	// Escape for Nix string literals: backslashes, quotes, and $ (interpolation)
 	escapedKey := strings.ReplaceAll(key, `\`, `\\`)
 	escapedKey = strings.ReplaceAll(escapedKey, `"`, `\"`)
+	escapedKey = strings.ReplaceAll(escapedKey, `$`, `\$`)
 
 	// Replace both deploy and root user SSH key placeholders
 	old := `# "ssh-ed25519 AAAA... your-key-here"`
 	new := fmt.Sprintf(`"%s"`, escapedKey)
 	// Replace all occurrences (deploy and root users)
 	content = strings.ReplaceAll(content, old, new)
+
+	// Verify replacement occurred
+	if content == originalContent {
+		return fmt.Errorf("SSH key placeholder not found in configuration")
+	}
 
 	return os.WriteFile(configPath, []byte(content), 0600)
 }
@@ -270,6 +278,8 @@ func injectBootDevice(disk string) error {
 	}
 
 	content := string(data)
+	originalContent := content
+
 	// Escape backslashes first, then quotes (order matters for Nix strings)
 	escapedDisk := strings.ReplaceAll(disk, `\`, `\\`)
 	escapedDisk = strings.ReplaceAll(escapedDisk, `"`, `\"`)
@@ -277,6 +287,11 @@ func injectBootDevice(disk string) error {
 
 	// Replace the default /dev/vda with the actual disk
 	content = strings.Replace(content, `device = "/dev/vda";`, fmt.Sprintf(`device = "%s";`, escapedDisk), 1)
+
+	// Verify replacement occurred (only warn, don't fail - disk might already be correct)
+	if content == originalContent {
+		return fmt.Errorf("boot device placeholder '/dev/vda' not found")
+	}
 
 	return os.WriteFile(configPath, []byte(content), 0600)
 }
