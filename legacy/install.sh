@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# DEPRECATED: This script is superseded by the juniper-host Go binary.
+# See README.md for current installation instructions.
+# Kept for reference only.
+#
 # Juniper Bible - NixOS Host Installation Script
 # Run this from the NixOS installer after partitioning and mounting
 

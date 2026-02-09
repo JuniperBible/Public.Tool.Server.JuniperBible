@@ -129,7 +129,9 @@ func Run(args []string) {
 	common.Success("NixOS rebuilt successfully")
 
 	// Mark setup complete
-	os.WriteFile(setupDoneFlag, []byte{}, 0644)
+	if err := os.WriteFile(setupDoneFlag, []byte{}, 0644); err != nil {
+		common.Warning(fmt.Sprintf("Failed to create setup flag: %v", err))
+	}
 
 	// Deploy if requested
 	if deployNow {
@@ -165,7 +167,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0644)
+	return os.WriteFile(dst, data, 0600)
 }
 
 func updateConfig(hostname, domain string, sshKeys []string) error {
@@ -196,5 +198,5 @@ func updateConfig(hostname, domain string, sshKeys []string) error {
 		content = keysRe.ReplaceAllString(content, keysNix.String())
 	}
 
-	return os.WriteFile(nixosConfig, []byte(content), 0644)
+	return os.WriteFile(nixosConfig, []byte(content), 0600)
 }

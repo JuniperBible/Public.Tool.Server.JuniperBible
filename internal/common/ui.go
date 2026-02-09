@@ -3,6 +3,7 @@ package common
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -88,7 +89,10 @@ func Prompt(question, defaultVal string) string {
 	} else {
 		fmt.Printf("%s: ", question)
 	}
-	input, _ := reader.ReadString('\n')
+	input, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return defaultVal
+	}
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return defaultVal
@@ -109,7 +113,10 @@ func Confirm(question string, defaultYes bool) bool {
 		prompt = "[Y/n]"
 	}
 	fmt.Printf("%s %s: ", question, prompt)
-	input, _ := reader.ReadString('\n')
+	input, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return defaultYes
+	}
 	input = strings.TrimSpace(strings.ToLower(input))
 
 	if input == "" {
@@ -125,7 +132,10 @@ func WaitForEnter(msg string) {
 		msg = "Press Enter to continue..."
 	}
 	fmt.Printf("%s%s%s\n", Yellow, msg, Reset)
-	reader.ReadString('\n')
+	_, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return
+	}
 }
 
 // ClearScreen clears the terminal

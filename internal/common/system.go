@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -76,11 +77,12 @@ func DetectDisk() string {
 }
 
 // GetPartitions returns the partition paths for a disk
-func GetPartitions(disk string) (part1, part2 string) {
+// Returns: bios_grub (1), ESP (2), root (3)
+func GetPartitions(disk string) (biosGrub, esp, root string) {
 	if strings.Contains(disk, "nvme") {
-		return disk + "p1", disk + "p2"
+		return disk + "p1", disk + "p2", disk + "p3"
 	}
-	return disk + "1", disk + "2"
+	return disk + "1", disk + "2", disk + "3"
 }
 
 // DownloadFile downloads a file from URL to destination
@@ -119,5 +121,20 @@ func (e *HTTPError) Error() string {
 // IsValidSSHKey validates an SSH public key format
 func IsValidSSHKey(key string) bool {
 	key = strings.TrimSpace(key)
-	return strings.HasPrefix(key, "ssh-") || strings.HasPrefix(key, "ecdsa-")
+	// Reject keys with newlines (multi-key injection)
+	if strings.ContainsAny(key, "\n\r") {
+		return false
+	}
+	// Validate format: type + space + base64 + optional comment
+	pattern := `^(ssh-rsa|ssh-ed25519|ssh-dss|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)\s+[A-Za-z0-9+/]+=*(\s+.*)?$`
+	matched, _ := regexp.MatchString(pattern, key)
+	return matched
+}
+
+// IsValidDiskPath validates a disk device path
+func IsValidDiskPath(path string) bool {
+	// Match standard Linux disk paths: /dev/vda, /dev/sda, /dev/nvme0n1, /dev/xvda, etc.
+	pattern := `^/dev/(nvme\d+n\d+|[svx]d[a-z]|loop\d+)$`
+	matched, _ := regexp.MatchString(pattern, path)
+	return matched
 }

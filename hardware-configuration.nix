@@ -18,6 +18,7 @@
   fileSystems."/" = {
     device = "/dev/disk/by-label/nixos";
     fsType = "ext4";
+    options = [ "noatime" ];
   };
 
   # ESP partition for hybrid BIOS/UEFI boot

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# DEPRECATED: This script is superseded by the juniper-host Go binary.
+# See README.md for current installation instructions.
+# Kept for reference only.
+#
 # Juniper Bible - First Login Setup Wizard
 # Runs automatically on first login, then disables itself
 

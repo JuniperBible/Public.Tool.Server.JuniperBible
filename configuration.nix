@@ -34,6 +34,7 @@
 
     # Security headers
     header {
+      Strict-Transport-Security "max-age=31536000; includeSubDomains"
       X-Content-Type-Options nosniff
       X-Frame-Options DENY
       Referrer-Policy strict-origin-when-cross-origin
@@ -61,8 +62,16 @@
   boot.loader.efi.canTouchEfiVariables = false;
 
   # Networking
-  networking.networkmanager.enable = true;
   networking.firewall.allowedTCPPorts = [ 22 80 443 ];
+
+  # Security hardening
+  boot.kernel.sysctl = {
+    "net.ipv4.tcp_syncookies" = 1;
+    "net.ipv4.conf.all.send_redirects" = 0;
+    "net.ipv4.conf.all.accept_redirects" = 0;
+    "net.ipv4.conf.all.rp_filter" = 1;
+    "kernel.yama.ptrace_scope" = 1;
+  };
 
   # Timezone
   time.timeZone = "UTC";
@@ -287,6 +296,13 @@
     fi
   '';
 
+  # Fail2ban for SSH brute-force protection
+  services.fail2ban = {
+    enable = true;
+    maxretry = 5;
+    bantime = "1h";
+  };
+
   # SSH server
   services.openssh = {
     enable = true;
@@ -299,7 +315,11 @@
   # Automatic updates
   system.autoUpgrade = {
     enable = true;
-    allowReboot = false;
+    allowReboot = true;
+    rebootWindow = {
+      lower = "03:00";
+      upper = "04:00";
+    };
   };
 
   # Garbage collection

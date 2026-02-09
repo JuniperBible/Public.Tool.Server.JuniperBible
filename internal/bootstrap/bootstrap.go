@@ -60,6 +60,13 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
+	// Validate disk path format
+	if !common.IsValidDiskPath(targetDisk) {
+		common.Error(fmt.Sprintf("Invalid disk path format: %s", targetDisk))
+		fmt.Println("Expected format: /dev/vda, /dev/sda, /dev/nvme0n1, etc.")
+		os.Exit(1)
+	}
+
 	common.Header("Juniper Bible - NixOS Bootstrap")
 	fmt.Printf("Disk: %s\n\n", targetDisk)
 
@@ -136,7 +143,10 @@ func Run(args []string) {
 	// Inject SSH key
 	if key != "" && common.IsValidSSHKey(key) {
 		if err := injectSSHKey(key); err != nil {
-			common.Warning(fmt.Sprintf("Failed to inject SSH key: %v", err))
+			common.Error(fmt.Sprintf("CRITICAL: Failed to inject SSH key: %v", err))
+			fmt.Println("\nWithout an SSH key, you will be LOCKED OUT of your server!")
+			fmt.Println("You must fix this issue before proceeding.")
+			os.Exit(1)
 		} else {
 			common.Success("SSH key configured")
 		}
@@ -212,8 +222,12 @@ func injectSSHKey(key string) error {
 	}
 
 	content := string(data)
+	// Escape backslashes first, then quotes (order matters)
+	escapedKey := strings.ReplaceAll(key, `\`, `\\`)
+	escapedKey = strings.ReplaceAll(escapedKey, `"`, `\"`)
+
 	old := `# "ssh-ed25519 AAAA... your-key-here"`
-	new := fmt.Sprintf(`"%s"`, key)
+	new := fmt.Sprintf(`"%s"`, escapedKey)
 	content = replaceFirst(content, old, new)
 
 	return os.WriteFile(configPath, []byte(content), 0644)
