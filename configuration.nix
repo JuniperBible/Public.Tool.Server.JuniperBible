@@ -42,8 +42,12 @@
     }
   '';
 
-  # Add your SSH public key here
+  # Add your SSH public key here (same key for deploy and root users)
   users.users.deploy.openssh.authorizedKeys.keys = [
+    # "ssh-ed25519 AAAA... your-key-here"
+  ];
+
+  users.users.root.openssh.authorizedKeys.keys = [
     # "ssh-ed25519 AAAA... your-key-here"
   ];
 
@@ -337,6 +341,7 @@
       echo ""
       [[ "$domain" != "localhost" ]] && echo "  https://$domain" || echo "  http://localhost"
       echo "  ssh deploy@$(hostname -I | awk '{print $1}')"
+      echo "  ssh root@$(hostname -I | awk '{print $1}')  (for admin tasks)"
       echo ""
     '';
   };
@@ -373,7 +378,7 @@
     enable = true;
     settings = {
       PasswordAuthentication = false;
-      PermitRootLogin = "no";
+      PermitRootLogin = "prohibit-password";  # Allow key-based root login only
       PermitEmptyPasswords = false;
       X11Forwarding = false;
       AllowTcpForwarding = false;

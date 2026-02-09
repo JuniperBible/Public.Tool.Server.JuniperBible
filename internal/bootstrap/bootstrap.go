@@ -250,9 +250,11 @@ func injectSSHKey(key string) error {
 	escapedKey := strings.ReplaceAll(key, `\`, `\\`)
 	escapedKey = strings.ReplaceAll(escapedKey, `"`, `\"`)
 
+	// Replace both deploy and root user SSH key placeholders
 	old := `# "ssh-ed25519 AAAA... your-key-here"`
 	new := fmt.Sprintf(`"%s"`, escapedKey)
-	content = replaceFirst(content, old, new)
+	// Replace all occurrences (deploy and root users)
+	content = strings.ReplaceAll(content, old, new)
 
 	return os.WriteFile(configPath, []byte(content), 0600)
 }

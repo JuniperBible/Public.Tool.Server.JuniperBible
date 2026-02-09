@@ -184,6 +184,7 @@ func Run(args []string) {
 		fmt.Printf("  Website: %shttp://%s%s\n", common.Cyan, domain, common.Reset)
 	}
 	fmt.Printf("  SSH:     %sssh deploy@%s%s\n", common.Cyan, common.GetIP(), common.Reset)
+	fmt.Printf("  Admin:   %sssh root@%s%s  (for system administration)\n", common.Cyan, common.GetIP(), common.Reset)
 	fmt.Println()
 	fmt.Println("Useful commands:")
 	fmt.Println("  deploy-juniper              - Update the site")
@@ -224,18 +225,33 @@ func updateConfig(hostname, domain string, sshKeys []string) error {
 		return fmt.Errorf("failed to find domain configuration in file")
 	}
 
-	// Update SSH keys
+	// Update SSH keys for both deploy and root users
 	if len(sshKeys) > 0 {
-		var keysNix strings.Builder
-		keysNix.WriteString("users.users.deploy.openssh.authorizedKeys.keys = [\n")
+		// Build the keys list
+		var keysList strings.Builder
 		for _, key := range sshKeys {
 			escapedKey := escapeNixString(key)
-			keysNix.WriteString(fmt.Sprintf("    \"%s\"\n", escapedKey))
+			keysList.WriteString(fmt.Sprintf("    \"%s\"\n", escapedKey))
 		}
-		keysNix.WriteString("  ];")
+		keysListStr := keysList.String()
 
-		keysRe := regexp.MustCompile(`users\.users\.deploy\.openssh\.authorizedKeys\.keys = \[[\s\S]*?\];`)
-		content = keysRe.ReplaceAllLiteralString(content, keysNix.String())
+		// Update deploy user keys
+		var deployKeysNix strings.Builder
+		deployKeysNix.WriteString("users.users.deploy.openssh.authorizedKeys.keys = [\n")
+		deployKeysNix.WriteString(keysListStr)
+		deployKeysNix.WriteString("  ];")
+
+		deployKeysRe := regexp.MustCompile(`users\.users\.deploy\.openssh\.authorizedKeys\.keys = \[[\s\S]*?\];`)
+		content = deployKeysRe.ReplaceAllLiteralString(content, deployKeysNix.String())
+
+		// Update root user keys
+		var rootKeysNix strings.Builder
+		rootKeysNix.WriteString("users.users.root.openssh.authorizedKeys.keys = [\n")
+		rootKeysNix.WriteString(keysListStr)
+		rootKeysNix.WriteString("  ];")
+
+		rootKeysRe := regexp.MustCompile(`users\.users\.root\.openssh\.authorizedKeys\.keys = \[[\s\S]*?\];`)
+		content = rootKeysRe.ReplaceAllLiteralString(content, rootKeysNix.String())
 	}
 
 	return os.WriteFile(nixosConfig, []byte(content), 0600)
