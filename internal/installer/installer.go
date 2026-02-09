@@ -103,7 +103,11 @@ func Run(args []string) {
 	fmt.Println("4. Reboot:")
 	fmt.Println("   reboot")
 	fmt.Println()
-	fmt.Println("After reboot, SSH in as 'deploy' user and run:")
+	fmt.Println("After reboot, SSH in as 'root' to run the setup wizard:")
+	fmt.Println("   ssh root@<server-ip>")
+	fmt.Println()
+	fmt.Println("Then use 'deploy' user for deployments:")
+	fmt.Println("   ssh deploy@<server-ip>")
 	fmt.Println("   deploy-juniper")
 	fmt.Println()
 }

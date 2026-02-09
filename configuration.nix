@@ -127,6 +127,19 @@
     shell = pkgs.bash;
   };
 
+  # Passwordless sudo for deploy user (limited to specific commands)
+  security.sudo.extraRules = [{
+    users = [ "deploy" ];
+    commands = [
+      { command = "/etc/deploy-juniper.sh"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/nixos-rebuild"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/cp"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/sed"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/touch"; options = [ "NOPASSWD" ]; }
+      { command = "/run/current-system/sw/bin/chmod"; options = [ "NOPASSWD" ]; }
+    ];
+  }];
+
   # Web directory
   systemd.tmpfiles.rules = [
     "d /var/www/juniperbible 0755 deploy caddy -"
@@ -149,8 +162,15 @@
         exit 1
       fi
 
-      # Cleanup on exit/interrupt
-      trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
+      # Variables for cleanup
+      STAGING_DIR=""
+
+      # Cleanup function
+      cleanup() {
+        rm -rf "$TEMP_DIR" 2>/dev/null || true
+        [[ -n "$STAGING_DIR" && -d "$STAGING_DIR" ]] && rm -rf "$STAGING_DIR" 2>/dev/null || true
+      }
+      trap cleanup EXIT INT TERM
 
       echo "Downloading latest release..."
       if ! curl -fsSL "$RELEASE_URL" -o "$TEMP_DIR/site.tar.xz"; then
@@ -162,9 +182,9 @@
       echo "Extracting to $DEPLOY_DIR..."
       # Use atomic replacement: extract to temp, then move
       STAGING_DIR=$(mktemp -d -p /var/www)
-      cleanup() { rm -rf "$TEMP_DIR" "$STAGING_DIR" 2>/dev/null || true; }
-      trap cleanup EXIT INT TERM
       tar -xJf "$TEMP_DIR/site.tar.xz" -C "$STAGING_DIR" --no-same-owner --no-symlinks
+      # Sync to ensure extraction is complete before swap
+      sync
       # Atomic swap: remove old and move new
       rm -rf "$DEPLOY_DIR"
       mv "$STAGING_DIR" "$DEPLOY_DIR"
@@ -246,7 +266,8 @@
         [[ ''${#d} -gt 0 && ''${#d} -le 253 && "$d" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]
       }
       escape_sed() {
-        printf '%s\n' "$1" | sed -e 's/[\/&|]/\\&/g' -e 's/"/\\"/g'
+        # Escape special chars for sed: backslash first, then others
+        printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/[\/&|]/\\&/g' -e 's/"/\\"/g'
       }
 
       # Step 1: Hostname
@@ -321,9 +342,9 @@
       echo
       [[ ! $confirm =~ ^[Yy]?$ ]] && { echo "Cancelled."; exit 1; }
 
-      # Apply
+      # Apply (running as root, no sudo needed)
       echo "Applying configuration..."
-      if ! sudo cp "$NIXOS_CONFIG" "''${NIXOS_CONFIG}.backup"; then
+      if ! cp "$NIXOS_CONFIG" "''${NIXOS_CONFIG}.backup"; then
         echo "ERROR: Failed to create backup"
         exit 1
       fi
@@ -332,8 +353,8 @@
       escaped_hostname=$(escape_sed "$new_hostname")
       escaped_domain=$(escape_sed "$domain")
 
-      sudo sed -i "s/networking.hostName = \".*\"/networking.hostName = \"$escaped_hostname\"/" "$NIXOS_CONFIG"
-      sudo sed -i "s/services.caddy.virtualHosts.\"[^\"]*\".extraConfig/services.caddy.virtualHosts.\"$escaped_domain\".extraConfig/" "$NIXOS_CONFIG"
+      sed -i "s/networking.hostName = \".*\"/networking.hostName = \"$escaped_hostname\"/" "$NIXOS_CONFIG"
+      sed -i "s/services.caddy.virtualHosts.\"[^\"]*\".extraConfig/services.caddy.virtualHosts.\"$escaped_domain\".extraConfig/" "$NIXOS_CONFIG"
 
       if [[ ''${#ssh_keys[@]} -gt 0 ]]; then
         keys_nix=""
@@ -341,23 +362,25 @@
           escaped_key=$(escape_sed "$key")
           keys_nix+="    \"$escaped_key\"\n"
         done
-        sudo sed -i '/authorizedKeys.keys = \[/,/\];/{/authorizedKeys.keys = \[/!{/\];/!d}}' "$NIXOS_CONFIG"
-        sudo sed -i "s|authorizedKeys.keys = \[|authorizedKeys.keys = [\n$keys_nix|" "$NIXOS_CONFIG"
+        sed -i '/authorizedKeys.keys = \[/,/\];/{/authorizedKeys.keys = \[/!{/\];/!d}}' "$NIXOS_CONFIG"
+        sed -i "s|authorizedKeys.keys = \[|authorizedKeys.keys = [\n$keys_nix|" "$NIXOS_CONFIG"
       fi
 
       echo "Rebuilding NixOS..."
-      if sudo nixos-rebuild switch; then
+      if nixos-rebuild switch; then
         echo "✓ Done"
       else
-        echo "✗ Failed - check $NIXOS_CONFIG"
+        echo "✗ Failed - restoring backup..."
+        cp "''${NIXOS_CONFIG}.backup" "$NIXOS_CONFIG" && echo "✓ Backup restored" || echo "✗ Restore failed"
         exit 1
       fi
 
-      sudo touch "$SETUP_DONE_FLAG"
+      touch "$SETUP_DONE_FLAG"
+      chmod 644 "$SETUP_DONE_FLAG"
 
       if [[ $deploy_now =~ ^[Yy]?$ ]]; then
         echo "Deploying site..."
-        sudo /etc/deploy-juniper.sh || echo "Deploy failed - run 'deploy-juniper' to retry"
+        /etc/deploy-juniper.sh || echo "Deploy failed - run 'deploy-juniper' to retry"
       fi
 
       echo ""
@@ -376,9 +399,9 @@
     setup-wizard = "/etc/setup-wizard.sh";
   };
 
-  # Run setup wizard on first login for deploy user
+  # Run setup wizard on first login for root user
   programs.bash.interactiveShellInit = ''
-    if [[ ! -f /etc/juniper-setup-complete ]] && [[ $USER == "deploy" ]]; then
+    if [[ ! -f /etc/juniper-setup-complete ]] && [[ $USER == "root" ]]; then
       /etc/setup-wizard.sh
     fi
   '';

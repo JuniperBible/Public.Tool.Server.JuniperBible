@@ -151,14 +151,20 @@ func Run(args []string) {
 	fmt.Println()
 	fmt.Println("Rebuilding NixOS (this may take a minute)...")
 	if err := common.Run("nixos-rebuild", "switch"); err != nil {
-		common.Error("NixOS rebuild failed. Check /etc/nixos/configuration.nix")
-		fmt.Printf("  Backup saved to %s.backup\n", nixosConfig)
+		common.Error("NixOS rebuild failed. Restoring backup...")
+		// Attempt to restore the backup
+		if restoreErr := copyFile(nixosConfig+".backup", nixosConfig); restoreErr != nil {
+			common.Error(fmt.Sprintf("Failed to restore backup: %v", restoreErr))
+			fmt.Printf("  Manual restore: sudo cp %s.backup %s\n", nixosConfig, nixosConfig)
+		} else {
+			common.Success("Backup restored")
+		}
 		os.Exit(1)
 	}
 	common.Success("NixOS rebuilt successfully")
 
-	// Mark setup complete
-	if err := os.WriteFile(setupDoneFlag, []byte{}, 0600); err != nil {
+	// Mark setup complete (world-readable so non-root can check it)
+	if err := os.WriteFile(setupDoneFlag, []byte{}, 0644); err != nil {
 		common.Warning(fmt.Sprintf("Failed to create setup flag: %v", err))
 	}
 

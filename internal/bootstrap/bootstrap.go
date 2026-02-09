@@ -18,14 +18,17 @@ func Run(args []string) {
 	sshKeyFile := fs.String("ssh-key-file", "", "Path to SSH public key file")
 	yes := fs.Bool("yes", false, "Skip confirmation prompts")
 	enthusiasticYes := fs.Bool("enthusiastic-yes", false, "Auto-detect everything, only prompt for SSH key if not provided")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		common.Error(fmt.Sprintf("Failed to parse arguments: %v", err))
+		os.Exit(1)
+	}
 
 	// --enthusiastic-yes implies --yes for disk confirmation
 	if *enthusiasticYes {
 		*yes = true
 	}
 
-	// Read SSH key from file if provided
+	// Read SSH key from file if provided (supports multiple keys, one per line)
 	if *sshKeyFile != "" && *sshKey == "" {
 		// Validate path doesn't contain directory traversal
 		if strings.Contains(*sshKeyFile, "..") {
@@ -41,6 +44,15 @@ func Run(args []string) {
 		if keyStr == "" {
 			common.Error("SSH key file is empty")
 			os.Exit(1)
+		}
+		// If file contains multiple keys (newlines), use only the first valid one
+		lines := strings.Split(keyStr, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "#") {
+				keyStr = line
+				break
+			}
 		}
 		sshKey = &keyStr
 	}
@@ -108,7 +120,9 @@ func Run(args []string) {
 
 	// Wait for udev
 	common.Info("Waiting for disk labels...")
-	common.RunQuiet("udevadm", "settle")
+	if err := common.RunQuiet("udevadm", "settle"); err != nil {
+		common.Warning(fmt.Sprintf("udevadm settle returned error: %v (continuing anyway)", err))
+	}
 	time.Sleep(2 * time.Second)
 
 	// Mount

@@ -100,10 +100,6 @@ func Prompt(question, defaultVal string) string {
 	return input
 }
 
-// PromptPassword asks for sensitive input (no echo - but Go stdlib doesn't support this easily)
-func PromptPassword(question string) string {
-	return Prompt(question, "")
-}
 
 // Confirm asks for yes/no confirmation
 func Confirm(question string, defaultYes bool) bool {

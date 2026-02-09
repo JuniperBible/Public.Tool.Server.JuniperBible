@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	RepoBase   = "https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main"
-	ReleaseURL = "https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases/latest/download/site.tar.xz"
+	RepoBase = "https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main"
 )
 
 // Pre-compiled regex patterns for validation
@@ -91,7 +90,8 @@ func DetectDisk() string {
 // GetPartitions returns the partition paths for a disk
 // Returns: bios_grub (1), ESP (2), root (3)
 func GetPartitions(disk string) (biosGrub, esp, root string) {
-	if strings.Contains(disk, "nvme") {
+	// NVMe and loop devices use "p" separator (e.g., nvme0n1p1, loop0p1)
+	if strings.Contains(disk, "nvme") || strings.Contains(disk, "loop") {
 		return disk + "p1", disk + "p2", disk + "p3"
 	}
 	return disk + "1", disk + "2", disk + "3"
