@@ -116,6 +116,14 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
+	// Inject boot device into configuration
+	common.Info("Configuring bootloader for " + targetDisk + "...")
+	if err := injectBootDevice(targetDisk); err != nil {
+		common.Warning(fmt.Sprintf("Failed to configure bootloader: %v", err))
+	} else {
+		common.Success("Bootloader configured for " + targetDisk)
+	}
+
 	// Get SSH key
 	// With --enthusiastic-yes, still prompt for SSH key if not provided (safety first)
 	key := *sshKey
@@ -194,6 +202,20 @@ func injectSSHKey(key string) error {
 	old := `# "ssh-ed25519 AAAA... your-key-here"`
 	new := fmt.Sprintf(`"%s"`, key)
 	content = replaceFirst(content, old, new)
+
+	return os.WriteFile(configPath, []byte(content), 0644)
+}
+
+func injectBootDevice(disk string) error {
+	configPath := "/mnt/etc/nixos/configuration.nix"
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	content := string(data)
+	// Replace the default /dev/vda with the actual disk
+	content = strings.Replace(content, `device = "/dev/vda";`, fmt.Sprintf(`device = "%s";`, disk), 1)
 
 	return os.WriteFile(configPath, []byte(content), 0644)
 }

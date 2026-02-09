@@ -50,9 +50,15 @@
   # SYSTEM CONFIGURATION (usually no changes needed)
   # ==========================================================================
 
-  # Boot loader
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
+  # Boot loader - GRUB for maximum compatibility (works with BIOS and UEFI)
+  # Vultr and many cloud VPS use BIOS mode, not UEFI
+  boot.loader.grub = {
+    enable = true;
+    device = "/dev/vda";  # REPLACE_BOOT_DEVICE - installer will update this
+    efiSupport = true;
+    efiInstallAsRemovable = true;  # Works even without EFI variables support
+  };
+  boot.loader.efi.canTouchEfiVariables = false;  # Safer for cloud VPS
 
   # Networking
   networking.networkmanager.enable = true;
