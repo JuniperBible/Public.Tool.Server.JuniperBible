@@ -98,58 +98,92 @@
     brotli
   ];
 
-  # Caddy web server with custom Caddyfile
+  # Caddy web server with writable Caddyfile
+  # The Caddyfile is stored in /var/lib/caddy/Caddyfile (writable)
+  # and symlinked from /etc/caddy/Caddyfile for convenience
   services.caddy = {
     enable = true;
-    configFile = /etc/caddy/Caddyfile;
+    configFile = "/var/lib/caddy/Caddyfile";
   };
 
-  # Default Caddyfile (will be replaced by setup wizard)
-  environment.etc."caddy/Caddyfile" = {
-    mode = "0644";
-    text = ''
-      # Juniper Bible - Caddy Configuration
-      # TLS Mode: self-signed (default)
-      {
-        log {
-          level ERROR
-        }
-      }
+  # Create default Caddyfile in writable location
+  # This file can be modified by the setup wizard
+  systemd.tmpfiles.rules = [
+    "d /var/lib/caddy 0755 caddy caddy -"
+    "d /var/www/juniperbible 0755 deploy caddy -"
+  ];
 
-      :443 {
-        tls internal
-        root * /var/www/juniperbible
-        encode gzip
-        file_server {
-          precompressed br gzip
-        }
+  # Initialize default Caddyfile on first boot
+  system.activationScripts.initCaddyfile = ''
+    if [ ! -f /var/lib/caddy/Caddyfile ]; then
+      cat > /var/lib/caddy/Caddyfile << 'CADDYEOF'
+# Juniper Bible - Caddy Configuration
+# TLS Mode: self-signed (default)
+# This file will be replaced by the setup wizard
+{
+  log {
+    level ERROR
+  }
+}
 
-        # Cache static assets
-        @static {
-          path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
-        }
-        header @static Cache-Control "public, max-age=31536000, immutable"
+# Shared site configuration
+(site_config) {
+  root * /var/www/juniperbible
+  encode gzip
 
-        # Cache Bible pages
-        @bible {
-          path /bible/*
-        }
-        header @bible Cache-Control "public, max-age=86400"
+  # Static redirects (301)
+  @religion path /religion/*
+  redir @religion /bible/drc/isa/42/ 301
 
-        # Security headers
-        header {
-          X-Content-Type-Options nosniff
-          X-Frame-Options DENY
-          Referrer-Policy strict-origin-when-cross-origin
-          Permissions-Policy "camera=(), microphone=(), geolocation=()"
-        }
-      }
+  @licenses path /licenses/*
+  redir @licenses /license/ 301
 
-      :80 {
-        redir https://{host}{uri} permanent
-      }
-    '';
-  };
+  # SPA-style rewrites for compare page clean URLs
+  @compare_spa {
+    path_regexp ^/bible/compare/[^/]+/[^/]+/[^/]+
+  }
+  rewrite @compare_spa /bible/compare/index.html
+
+  file_server {
+    precompressed br gzip
+  }
+
+  # Cache static assets
+  @static {
+    path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
+  }
+  header @static Cache-Control "public, max-age=31536000, immutable"
+
+  # Cache Bible pages
+  @bible {
+    path /bible/*
+  }
+  header @bible Cache-Control "public, max-age=86400"
+
+  # Security headers
+  header {
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy strict-origin-when-cross-origin
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  }
+}
+
+# HTTPS with self-signed certificate
+:443 {
+  tls internal
+  import site_config
+}
+
+# HTTP - serve content (for Cloudflare proxy) or redirect to HTTPS
+:80 {
+  import site_config
+}
+CADDYEOF
+      chown caddy:caddy /var/lib/caddy/Caddyfile
+      chmod 644 /var/lib/caddy/Caddyfile
+    fi
+  '';
 
   # Deploy user (for SSH deployments)
   users.users.deploy = {
@@ -159,10 +193,7 @@
     shell = pkgs.bash;
   };
 
-  # Web directory
-  systemd.tmpfiles.rules = [
-    "d /var/www/juniperbible 0755 deploy caddy -"
-  ];
+  # Web directory is created in systemd.tmpfiles.rules above
 
   # Deployment script
   environment.etc."deploy-juniper.sh" = {
@@ -438,31 +469,48 @@
 
       # Generate Caddyfile based on TLS mode
       echo "Generating Caddyfile..."
-      CADDYFILE="/etc/caddy/Caddyfile"
+      CADDYFILE="/var/lib/caddy/Caddyfile"
 
-      # Common site configuration
-      site_config='root * /var/www/juniperbible
-        encode gzip
-        file_server {
-          precompressed br gzip
-        }
+      # Shared site configuration snippet (imported by each server block)
+      site_config_snippet='(site_config) {
+  root * /var/www/juniperbible
+  encode gzip
 
-        @static {
-          path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
-        }
-        header @static Cache-Control "public, max-age=31536000, immutable"
+  # Static redirects (301) - matches _redirects
+  @religion path /religion/*
+  redir @religion /bible/drc/isa/42/ 301
 
-        @bible {
-          path /bible/*
-        }
-        header @bible Cache-Control "public, max-age=86400"
+  @licenses path /licenses/*
+  redir @licenses /license/ 301
 
-        header {
-          X-Content-Type-Options nosniff
-          X-Frame-Options DENY
-          Referrer-Policy strict-origin-when-cross-origin
-          Permissions-Policy "camera=(), microphone=(), geolocation=()"
-        }'
+  # SPA-style rewrites for compare page clean URLs
+  # Matches: /bible/compare/{bibles}/{book}/{chapter}[/{verse}][/{mode}]
+  @compare_spa {
+    path_regexp ^/bible/compare/[^/]+/[^/]+/[^/]+
+  }
+  rewrite @compare_spa /bible/compare/index.html
+
+  file_server {
+    precompressed br gzip
+  }
+
+  @static {
+    path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
+  }
+  header @static Cache-Control "public, max-age=31536000, immutable"
+
+  @bible {
+    path /bible/*
+  }
+  header @bible Cache-Control "public, max-age=86400"
+
+  header {
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy strict-origin-when-cross-origin
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  }
+}'
 
       case "$tls_mode" in
         1)
@@ -475,8 +523,10 @@
   }
 }
 
+$site_config_snippet
+
 $domain {
-  $site_config
+  import site_config
   header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 }
 CADDYEOF
@@ -489,14 +539,15 @@ CADDYEOF
   log {
     level ERROR
   }
-  acme_dns cloudflare $cf_api_token
 }
+
+$site_config_snippet
 
 $domain {
   tls {
     dns cloudflare $cf_api_token
   }
-  $site_config
+  import site_config
   header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 }
 CADDYEOF
@@ -511,9 +562,11 @@ CADDYEOF
   }
 }
 
+$site_config_snippet
+
 $domain {
   tls $cert_path $key_path
-  $site_config
+  import site_config
   header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 }
 CADDYEOF
@@ -528,33 +581,42 @@ CADDYEOF
   }
 }
 
+$site_config_snippet
+
 :80 {
-  $site_config
+  import site_config
 }
 CADDYEOF
           ;;
         5|*)
-          # Self-signed (default)
+          # Self-signed (default) - serves HTTP for Cloudflare proxy
           cat > "$CADDYFILE" << CADDYEOF
 # Juniper Bible - TLS Mode: Self-signed
+# HTTP is served without redirect (for Cloudflare proxy)
+# Direct HTTPS uses self-signed certificate
 {
   log {
     level ERROR
   }
 }
 
+$site_config_snippet
+
+# HTTPS with self-signed certificate (direct access)
 $domain, :443 {
   tls internal
-  $site_config
+  import site_config
 }
 
+# HTTP - serve content (for Cloudflare proxy)
 :80 {
-  redir https://{host}{uri} permanent
+  import site_config
 }
 CADDYEOF
           ;;
       esac
 
+      chown caddy:caddy "$CADDYFILE"
       chmod 644 "$CADDYFILE"
       echo "✓ Caddyfile generated"
 

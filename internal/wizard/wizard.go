@@ -11,7 +11,7 @@ import (
 
 const (
 	nixosConfig   = "/etc/nixos/configuration.nix"
-	caddyfile     = "/etc/caddy/Caddyfile"
+	caddyfile     = "/var/lib/caddy/Caddyfile"
 	setupDoneFlag = "/etc/juniper-setup-complete"
 )
 
@@ -335,28 +335,46 @@ func updateConfig(hostname string, sshKeys []string) error {
 }
 
 func generateCaddyfile(domain, tlsMode, cfAPIToken, certPath, keyPath string) error {
-	siteConfig := `root * /var/www/juniperbible
-    encode gzip
-    file_server {
-      precompressed br gzip
-    }
+	// Shared site configuration snippet (imported by each server block)
+	siteConfigSnippet := `(site_config) {
+  root * /var/www/juniperbible
+  encode gzip
 
-    @static {
-      path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
-    }
-    header @static Cache-Control "public, max-age=31536000, immutable"
+  # Static redirects (301) - matches _redirects
+  @religion path /religion/*
+  redir @religion /bible/drc/isa/42/ 301
 
-    @bible {
-      path /bible/*
-    }
-    header @bible Cache-Control "public, max-age=86400"
+  @licenses path /licenses/*
+  redir @licenses /license/ 301
 
-    header {
-      X-Content-Type-Options nosniff
-      X-Frame-Options DENY
-      Referrer-Policy strict-origin-when-cross-origin
-      Permissions-Policy "camera=(), microphone=(), geolocation=()"
-    }`
+  # SPA-style rewrites for compare page clean URLs
+  # Matches: /bible/compare/{bibles}/{book}/{chapter}[/{verse}][/{mode}]
+  @compare_spa {
+    path_regexp ^/bible/compare/[^/]+/[^/]+/[^/]+
+  }
+  rewrite @compare_spa /bible/compare/index.html
+
+  file_server {
+    precompressed br gzip
+  }
+
+  @static {
+    path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
+  }
+  header @static Cache-Control "public, max-age=31536000, immutable"
+
+  @bible {
+    path /bible/*
+  }
+  header @bible Cache-Control "public, max-age=86400"
+
+  header {
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy strict-origin-when-cross-origin
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  }
+}`
 
 	var content string
 
@@ -369,11 +387,13 @@ func generateCaddyfile(domain, tlsMode, cfAPIToken, certPath, keyPath string) er
   }
 }
 
+%s
+
 %s {
-  %s
+  import site_config
   header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 }
-`, domain, siteConfig)
+`, siteConfigSnippet, domain)
 
 	case TLSModeACMEDNS:
 		content = fmt.Sprintf(`# Juniper Bible - TLS Mode: ACME DNS-01 (Cloudflare)
@@ -383,14 +403,16 @@ func generateCaddyfile(domain, tlsMode, cfAPIToken, certPath, keyPath string) er
   }
 }
 
+%s
+
 %s {
   tls {
     dns cloudflare %s
   }
-  %s
+  import site_config
   header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 }
-`, domain, cfAPIToken, siteConfig)
+`, siteConfigSnippet, domain, cfAPIToken)
 
 	case TLSModeCustomCert:
 		content = fmt.Sprintf(`# Juniper Bible - TLS Mode: Custom Certificate
@@ -400,12 +422,14 @@ func generateCaddyfile(domain, tlsMode, cfAPIToken, certPath, keyPath string) er
   }
 }
 
+%s
+
 %s {
   tls %s %s
-  %s
+  import site_config
   header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 }
-`, domain, certPath, keyPath, siteConfig)
+`, siteConfigSnippet, domain, certPath, keyPath)
 
 	case TLSModeHTTPOnly:
 		content = fmt.Sprintf(`# Juniper Bible - TLS Mode: HTTP Only
@@ -415,28 +439,38 @@ func generateCaddyfile(domain, tlsMode, cfAPIToken, certPath, keyPath string) er
   }
 }
 
+%s
+
 :80 {
-  %s
+  import site_config
 }
-`, siteConfig)
+`, siteConfigSnippet)
 
 	default: // TLSModeSelfSigned
+		// For self-signed mode, serve HTTP without redirect (for Cloudflare proxy)
+		// Direct HTTPS access uses self-signed cert
 		content = fmt.Sprintf(`# Juniper Bible - TLS Mode: Self-signed
+# HTTP is served without redirect (for Cloudflare proxy)
+# Direct HTTPS uses self-signed certificate
 {
   log {
     level ERROR
   }
 }
 
+%s
+
+# HTTPS with self-signed certificate (direct access)
 %s, :443 {
   tls internal
-  %s
+  import site_config
 }
 
+# HTTP - serve content (for Cloudflare proxy)
 :80 {
-  redir https://{host}{uri} permanent
+  import site_config
 }
-`, domain, siteConfig)
+`, siteConfigSnippet, domain)
 	}
 
 	return os.WriteFile(caddyfile, []byte(content), 0644)
