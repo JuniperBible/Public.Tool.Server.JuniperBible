@@ -50,12 +50,15 @@
   # SYSTEM CONFIGURATION (usually no changes needed)
   # ==========================================================================
 
-  # Boot loader - GRUB for BIOS mode (Vultr and most cloud VPS)
-  # For UEFI systems, set device = "nodev" and efiSupport = true
+  # Boot loader - GRUB with hybrid BIOS+UEFI support
+  # Works with GPT disks that have both bios_grub and ESP partitions
   boot.loader.grub = {
     enable = true;
     device = "/dev/vda";  # REPLACE_BOOT_DEVICE - installer will update this
+    efiSupport = true;
+    efiInstallAsRemovable = true;  # Install to ESP without NVRAM
   };
+  boot.loader.efi.canTouchEfiVariables = false;
 
   # Networking
   networking.networkmanager.enable = true;

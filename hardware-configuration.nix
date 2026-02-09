@@ -20,12 +20,11 @@
     fsType = "ext4";
   };
 
-  # Note: For BIOS mode (Vultr default), no separate /boot partition needed.
-  # For UEFI mode, uncomment:
-  # fileSystems."/boot" = {
-  #   device = "/dev/disk/by-label/boot";
-  #   fsType = "vfat";
-  # };
+  # ESP partition for hybrid BIOS/UEFI boot
+  fileSystems."/boot" = {
+    device = "/dev/disk/by-label/boot";
+    fsType = "vfat";
+  };
 
   swapDevices = [ ];
 
