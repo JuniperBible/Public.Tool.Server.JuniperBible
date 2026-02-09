@@ -152,7 +152,7 @@
       echo "Extracting to $DEPLOY_DIR..."
       rm -rf "$DEPLOY_DIR"/*
       mkdir -p "$DEPLOY_DIR"
-      tar -xJf "$TEMP_DIR/site.tar.xz" -C "$DEPLOY_DIR" --no-same-owner
+      tar -xJf "$TEMP_DIR/site.tar.xz" -C "$DEPLOY_DIR" --no-same-owner --no-symlinks
 
       echo "Done! Site deployed to $DEPLOY_DIR"
     '';
@@ -222,7 +222,7 @@
         [[ ${#d} -gt 0 && ${#d} -le 253 && "$d" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]]
       }
       escape_sed() {
-        printf '%s\n' "$1" | sed -e 's/[\/&]/\\&/g' -e 's/"/\\"/g'
+        printf '%s\n' "$1" | sed -e 's/[\/&|]/\\&/g' -e 's/"/\\"/g'
       }
 
       # Step 1: Hostname

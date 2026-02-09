@@ -27,6 +27,11 @@ func Run(args []string) {
 
 	// Read SSH key from file if provided
 	if *sshKeyFile != "" && *sshKey == "" {
+		// Validate path doesn't contain directory traversal
+		if strings.Contains(*sshKeyFile, "..") {
+			common.Error("SSH key file path cannot contain '..'")
+			os.Exit(1)
+		}
 		data, err := os.ReadFile(*sshKeyFile)
 		if err != nil {
 			common.Error(fmt.Sprintf("Failed to read SSH key file: %v", err))
@@ -141,7 +146,19 @@ func Run(args []string) {
 	key := *sshKey
 	if key == "" {
 		fmt.Println()
-		key = common.Prompt("Enter your SSH public key (ssh-ed25519 or ssh-rsa)", "")
+		const maxKeyRetries = 5
+		for attempt := 0; attempt < maxKeyRetries; attempt++ {
+			key = common.Prompt("Enter your SSH public key (ssh-ed25519 or ssh-rsa)", "")
+			if key != "" {
+				break
+			}
+			if attempt < maxKeyRetries-1 {
+				common.Warning("No SSH key entered. You may be locked out without one.")
+			}
+		}
+		if key == "" {
+			common.Warning("No SSH key provided. Continuing without SSH key.")
+		}
 	}
 
 	// Inject SSH key
@@ -171,7 +188,10 @@ func Run(args []string) {
 	common.Header("Installation complete!")
 	fmt.Println("Rebooting in 5 seconds... (Ctrl+C to cancel)")
 	time.Sleep(5 * time.Second)
-	common.Run("reboot")
+	if err := common.Run("reboot"); err != nil {
+		common.Warning(fmt.Sprintf("Reboot command failed: %v", err))
+		fmt.Println("Please reboot manually to complete installation.")
+	}
 }
 
 func partition(disk string) error {

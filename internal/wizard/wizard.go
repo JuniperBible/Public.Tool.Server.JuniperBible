@@ -205,16 +205,24 @@ func updateConfig(hostname, domain string, sshKeys []string) error {
 		return err
 	}
 	content := string(data)
+	originalContent := content
 
 	// Update hostname (escape for regex replacement)
 	hostnameRe := regexp.MustCompile(`networking\.hostName = "[^"]*"`)
 	escapedHostname := escapeNixString(hostname)
 	content = hostnameRe.ReplaceAllLiteralString(content, fmt.Sprintf(`networking.hostName = "%s"`, escapedHostname))
+	if content == originalContent {
+		return fmt.Errorf("failed to find hostname configuration in file")
+	}
 
 	// Update domain (escape for regex replacement)
+	beforeDomain := content
 	domainRe := regexp.MustCompile(`services\.caddy\.virtualHosts\."[^"]*"\.extraConfig`)
 	escapedDomain := escapeNixString(domain)
 	content = domainRe.ReplaceAllLiteralString(content, fmt.Sprintf(`services.caddy.virtualHosts."%s".extraConfig`, escapedDomain))
+	if content == beforeDomain {
+		return fmt.Errorf("failed to find domain configuration in file")
+	}
 
 	// Update SSH keys
 	if len(sshKeys) > 0 {

@@ -110,6 +110,11 @@ func RunWithProgress(name string, args ...string) error {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintf(os.Stderr, "\nWarning: progress indicator error: %v\n", r)
+			}
+		}()
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
