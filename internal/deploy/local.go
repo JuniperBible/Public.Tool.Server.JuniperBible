@@ -96,6 +96,7 @@ func (d *LocalDeployer) UploadFull(buildDir, releaseID string) error {
 }
 
 // UploadDelta copies only changed files to the release directory.
+// Removes existing files first to break hardlinks and preserve rollback integrity.
 func (d *LocalDeployer) UploadDelta(buildDir, releaseID string, files []string) error {
 	releaseDir := d.releaseDir(releaseID)
 
@@ -108,6 +109,10 @@ func (d *LocalDeployer) UploadDelta(buildDir, releaseID string, files []string) 
 			return err
 		}
 
+		// Remove existing file to break hardlink before copy
+		// This preserves the original in the source release
+		os.Remove(dst)
+
 		if err := copyFile(src, dst); err != nil {
 			return fmt.Errorf("copy %s: %w", file, err)
 		}
@@ -116,42 +121,59 @@ func (d *LocalDeployer) UploadDelta(buildDir, releaseID string, files []string) 
 	return nil
 }
 
-// Activate validates and activates the release via symlink swap.
-func (d *LocalDeployer) Activate(releaseID string) error {
-	releaseDir := d.releaseDir(releaseID)
-	currentLink := d.currentLink()
-	tmpLink := currentLink + ".new"
-
-	// Validate required files
+// validateRequiredFiles checks that required files exist in the release
+func (d *LocalDeployer) validateRequiredFiles(releaseDir string) error {
 	requiredFiles := []string{"healthz.json", "index.html", "sw.js"}
 	for _, f := range requiredFiles {
 		path := filepath.Join(releaseDir, f)
 		if _, err := os.Stat(path); err != nil {
-			// Cleanup on failure
 			os.RemoveAll(releaseDir)
 			return fmt.Errorf("validation failed: %s missing", f)
 		}
 	}
+	return nil
+}
 
-	// Remove temp link if exists
+// atomicSymlinkSwap performs atomic symlink swap
+func (d *LocalDeployer) atomicSymlinkSwap(releaseDir, currentLink string) error {
+	tmpLink := currentLink + ".new"
 	os.Remove(tmpLink)
 
-	// Create new symlink (use relative path for portability)
 	relPath, err := filepath.Rel(filepath.Dir(currentLink), releaseDir)
 	if err != nil {
-		relPath = releaseDir // Fall back to absolute
+		relPath = releaseDir
 	}
 
 	if err := os.Symlink(relPath, tmpLink); err != nil {
 		return fmt.Errorf("create symlink: %w", err)
 	}
 
-	// Atomic rename
 	if err := os.Rename(tmpLink, currentLink); err != nil {
 		os.Remove(tmpLink)
 		return fmt.Errorf("activate release: %w", err)
 	}
+	return nil
+}
 
+// Activate validates and activates the release via symlink swap.
+func (d *LocalDeployer) Activate(releaseID string) error {
+	releaseDir := d.releaseDir(releaseID)
+	if err := d.validateRequiredFiles(releaseDir); err != nil {
+		return err
+	}
+	return d.atomicSymlinkSwap(releaseDir, d.currentLink())
+}
+
+// removeOldReleases removes releases beyond keepN, skipping current
+func (d *LocalDeployer) removeOldReleases(releases []Release, keepN int) error {
+	for _, release := range releases[keepN:] {
+		if release.Current {
+			continue
+		}
+		if err := os.RemoveAll(release.Path); err != nil {
+			return fmt.Errorf("remove %s: %w", release.ID, err)
+		}
+	}
 	return nil
 }
 
@@ -161,22 +183,10 @@ func (d *LocalDeployer) Cleanup(keepN int) error {
 	if err != nil {
 		return err
 	}
-
 	if len(releases) <= keepN {
 		return nil
 	}
-
-	// Sort by creation time (newest first) - ListReleases returns sorted
-	for _, release := range releases[keepN:] {
-		if release.Current {
-			continue // Never delete current
-		}
-		if err := os.RemoveAll(release.Path); err != nil {
-			return fmt.Errorf("remove %s: %w", release.ID, err)
-		}
-	}
-
-	return nil
+	return d.removeOldReleases(releases, keepN)
 }
 
 // HealthCheck verifies the deployment was successful.
@@ -194,6 +204,33 @@ func (d *LocalDeployer) HealthCheck(releaseID string) error {
 	return nil
 }
 
+// getCurrentTarget returns the resolved current symlink target
+func (d *LocalDeployer) getCurrentTarget() string {
+	currentTarget, _ := os.Readlink(d.currentLink())
+	if !filepath.IsAbs(currentTarget) {
+		currentTarget = filepath.Join(filepath.Dir(d.currentLink()), currentTarget)
+	}
+	return currentTarget
+}
+
+// entryToRelease converts a directory entry to a Release struct
+func (d *LocalDeployer) entryToRelease(entry os.DirEntry, currentTarget string) *Release {
+	if !entry.IsDir() {
+		return nil
+	}
+	info, err := entry.Info()
+	if err != nil {
+		return nil
+	}
+	releasePath := filepath.Join(d.releasesDir(), entry.Name())
+	return &Release{
+		ID:        entry.Name(),
+		Path:      releasePath,
+		CreatedAt: info.ModTime(),
+		Current:   releasePath == currentTarget,
+	}
+}
+
 // ListReleases returns all available releases, sorted by creation time (newest first).
 func (d *LocalDeployer) ListReleases() ([]Release, error) {
 	entries, err := os.ReadDir(d.releasesDir())
@@ -204,69 +241,49 @@ func (d *LocalDeployer) ListReleases() ([]Release, error) {
 		return nil, err
 	}
 
-	// Get current release
-	currentTarget, _ := os.Readlink(d.currentLink())
-	if !filepath.IsAbs(currentTarget) {
-		currentTarget = filepath.Join(filepath.Dir(d.currentLink()), currentTarget)
-	}
-
+	currentTarget := d.getCurrentTarget()
 	var releases []Release
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+		if r := d.entryToRelease(entry, currentTarget); r != nil {
+			releases = append(releases, *r)
 		}
-
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
-		releasePath := filepath.Join(d.releasesDir(), entry.Name())
-		releases = append(releases, Release{
-			ID:        entry.Name(),
-			Path:      releasePath,
-			CreatedAt: info.ModTime(),
-			Current:   releasePath == currentTarget,
-		})
 	}
 
-	// Sort by creation time (newest first)
 	sort.Slice(releases, func(i, j int) bool {
 		return releases[i].CreatedAt.After(releases[j].CreatedAt)
 	})
-
 	return releases, nil
+}
+
+// findPreviousReleaseID finds the first non-current release ID
+func (d *LocalDeployer) findPreviousReleaseID() (string, error) {
+	releases, err := d.ListReleases()
+	if err != nil {
+		return "", err
+	}
+	for _, r := range releases {
+		if !r.Current {
+			return r.ID, nil
+		}
+	}
+	return "", fmt.Errorf("no previous release found")
 }
 
 // Rollback switches to a previous release.
 func (d *LocalDeployer) Rollback(releaseID string) error {
-	// If no release ID specified, use the previous one
-	if releaseID == "" {
-		releases, err := d.ListReleases()
+	targetID := releaseID
+	if targetID == "" {
+		var err error
+		targetID, err = d.findPreviousReleaseID()
 		if err != nil {
 			return err
 		}
-
-		// Find the previous (non-current) release
-		for _, r := range releases {
-			if !r.Current {
-				releaseID = r.ID
-				break
-			}
-		}
-
-		if releaseID == "" {
-			return fmt.Errorf("no previous release found")
-		}
 	}
 
-	// Verify release exists
-	releaseDir := d.releaseDir(releaseID)
-	if _, err := os.Stat(releaseDir); err != nil {
-		return fmt.Errorf("release %s not found", releaseID)
+	if _, err := os.Stat(d.releaseDir(targetID)); err != nil {
+		return fmt.Errorf("release %s not found", targetID)
 	}
-
-	return d.Activate(releaseID)
+	return d.Activate(targetID)
 }
 
 // copyFile copies a file from src to dst.

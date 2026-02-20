@@ -10,8 +10,17 @@ import (
 	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/common"
 )
 
-// Run executes the bootstrap command
-func Run(args []string) {
+// bootstrapFlags holds all command line flags for bootstrap
+type bootstrapFlags struct {
+	disk            string
+	sshKey          string
+	sshKeyFile      string
+	yes             bool
+	enthusiasticYes bool
+}
+
+// parseFlags parses command line arguments and returns bootstrapFlags
+func parseFlags(args []string) bootstrapFlags {
 	fs := flag.NewFlagSet("bootstrap", flag.ExitOnError)
 	disk := fs.String("disk", "", "Target disk (auto-detect if not specified)")
 	sshKey := fs.String("ssh-key", "", "SSH public key")
@@ -23,49 +32,52 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
+	flags := bootstrapFlags{
+		disk:            *disk,
+		sshKey:          *sshKey,
+		sshKeyFile:      *sshKeyFile,
+		yes:             *yes,
+		enthusiasticYes: *enthusiasticYes,
+	}
+
 	// --enthusiastic-yes implies --yes for disk confirmation
-	if *enthusiasticYes {
-		*yes = true
+	if flags.enthusiasticYes {
+		flags.yes = true
 	}
 
-	// Read SSH key from file if provided (supports multiple keys, one per line)
-	if *sshKeyFile != "" && *sshKey == "" {
-		// Validate path doesn't contain directory traversal
-		if strings.Contains(*sshKeyFile, "..") {
-			common.Error("SSH key file path cannot contain '..'")
-			os.Exit(1)
-		}
-		data, err := os.ReadFile(*sshKeyFile)
-		if err != nil {
-			common.Error(fmt.Sprintf("Failed to read SSH key file: %v", err))
-			os.Exit(1)
-		}
-		keyStr := strings.TrimSpace(string(data))
-		if keyStr == "" {
-			common.Error("SSH key file is empty")
-			os.Exit(1)
-		}
-		// If file contains multiple keys (newlines), use only the first valid one
-		lines := strings.Split(keyStr, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line != "" && !strings.HasPrefix(line, "#") {
-				keyStr = line
-				break
-			}
-		}
-		sshKey = &keyStr
-	}
+	return flags
+}
 
-	// Check root
-	if !common.IsRoot() {
-		common.Error("Must be run as root")
-		fmt.Println("Usage: sudo juniper-host bootstrap")
-		os.Exit(1)
+// findFirstValidKey finds the first non-comment, non-empty line
+func findFirstValidKey(content string) (string, error) {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			return line, nil
+		}
 	}
+	return "", fmt.Errorf("no valid SSH key found in file")
+}
 
-	// Auto-detect disk if not specified
-	targetDisk := *disk
+// readSSHKeyFromFile reads and validates an SSH key from a file
+func readSSHKeyFromFile(path string) (string, error) {
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("SSH key file path cannot contain '..'")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read SSH key file: %w", err)
+	}
+	keyStr := strings.TrimSpace(string(data))
+	if keyStr == "" {
+		return "", fmt.Errorf("SSH key file is empty")
+	}
+	return findFirstValidKey(keyStr)
+}
+
+// validateAndDetectDisk validates disk path or auto-detects it
+func validateAndDetectDisk(diskFlag string) string {
+	targetDisk := diskFlag
 	if targetDisk == "" {
 		targetDisk = common.DetectDisk()
 		if targetDisk == "" {
@@ -75,35 +87,63 @@ func Run(args []string) {
 		}
 	}
 
-	// Verify disk exists
 	if !common.BlockDeviceExists(targetDisk) {
 		common.Error(fmt.Sprintf("Disk not found: %s", targetDisk))
 		os.Exit(1)
 	}
 
-	// Validate disk path format
 	if !common.IsValidDiskPath(targetDisk) {
 		common.Error(fmt.Sprintf("Invalid disk path format: %s", targetDisk))
 		fmt.Println("Expected format: /dev/vda, /dev/sda, /dev/nvme0n1, etc.")
 		os.Exit(1)
 	}
 
-	common.Header("Juniper Bible - NixOS Bootstrap")
-	fmt.Printf("Disk: %s\n\n", targetDisk)
+	return targetDisk
+}
 
-	// Confirm
-	common.Warning(fmt.Sprintf("This will ERASE %s", targetDisk))
-	if !*yes {
-		if !common.Confirm("Continue?", false) {
-			fmt.Println("Aborted.")
-			os.Exit(0)
+// promptForSSHKey prompts user for SSH key if not provided
+func promptForSSHKey(existingKey string) string {
+	if existingKey != "" {
+		return existingKey
+	}
+	fmt.Println()
+	const maxKeyRetries = 5
+	for attempt := 0; attempt < maxKeyRetries; attempt++ {
+		key := common.Prompt("Enter your SSH public key (ssh-ed25519 or ssh-rsa)", "")
+		if key != "" {
+			return key
+		}
+		if attempt < maxKeyRetries-1 {
+			common.Warning("No SSH key entered. You may be locked out without one.")
 		}
 	}
+	common.Warning("No SSH key provided. Continuing without SSH key.")
+	return ""
+}
 
-	// Get partition paths: bios_grub (1), ESP (2), root (3)
+// configureSSHKey validates and injects the SSH key into configuration
+func configureSSHKey(key string) {
+	if key == "" {
+		return
+	}
+	if !common.IsValidSSHKey(key) {
+		common.Warning("SSH key failed validation (invalid format). Continuing without SSH key.")
+		common.Warning("You may be locked out of the server!")
+		return
+	}
+	if err := injectSSHKey(key); err != nil {
+		common.Error(fmt.Sprintf("CRITICAL: Failed to inject SSH key: %v", err))
+		fmt.Println("\nWithout an SSH key, you will be LOCKED OUT of your server!")
+		fmt.Println("You must fix this issue before proceeding.")
+		os.Exit(1)
+	}
+	common.Success("SSH key configured for deploy and root users")
+}
+
+// prepareFilesystems partitions, formats, and mounts the disk
+func prepareFilesystems(targetDisk string) {
 	_, espPart, rootPart := common.GetPartitions(targetDisk)
 
-	// Partition
 	common.Info("Partitioning disk...")
 	if err := partition(targetDisk); err != nil {
 		common.Error(fmt.Sprintf("Partitioning failed: %v", err))
@@ -111,35 +151,33 @@ func Run(args []string) {
 	}
 	time.Sleep(2 * time.Second)
 
-	// Format (only ESP and root - bios_grub partition is not formatted)
 	common.Info("Formatting partitions...")
 	if err := format(espPart, rootPart); err != nil {
 		common.Error(fmt.Sprintf("Formatting failed: %v", err))
 		os.Exit(1)
 	}
 
-	// Wait for udev
 	common.Info("Waiting for disk labels...")
 	if err := common.RunQuiet("udevadm", "settle"); err != nil {
 		common.Warning(fmt.Sprintf("udevadm settle returned error: %v (continuing anyway)", err))
 	}
 	time.Sleep(2 * time.Second)
 
-	// Mount
 	common.Info("Mounting filesystems...")
 	if err := mount(espPart, rootPart); err != nil {
 		common.Error(fmt.Sprintf("Mount failed: %v", err))
 		os.Exit(1)
 	}
+}
 
-	// Generate hardware config
+// downloadAndConfigureNixOS downloads config and generates hardware config
+func downloadAndConfigureNixOS(targetDisk string) {
 	common.Info("Generating hardware configuration...")
 	if err := common.Run("nixos-generate-config", "--root", "/mnt"); err != nil {
 		common.Error(fmt.Sprintf("Failed to generate hardware config: %v", err))
 		os.Exit(1)
 	}
 
-	// Download configuration
 	common.Info("Downloading configuration...")
 	configURL := common.RepoBase + "/configuration.nix"
 	if err := common.DownloadFile(configURL, "/mnt/etc/nixos/configuration.nix"); err != nil {
@@ -147,50 +185,16 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
-	// Inject boot device into configuration
 	common.Info("Configuring bootloader for " + targetDisk + "...")
 	if err := injectBootDevice(targetDisk); err != nil {
 		common.Warning(fmt.Sprintf("Failed to configure bootloader: %v", err))
 	} else {
 		common.Success("Bootloader configured for " + targetDisk)
 	}
+}
 
-	// Get SSH key
-	// With --enthusiastic-yes, still prompt for SSH key if not provided (safety first)
-	key := *sshKey
-	if key == "" {
-		fmt.Println()
-		const maxKeyRetries = 5
-		for attempt := 0; attempt < maxKeyRetries; attempt++ {
-			key = common.Prompt("Enter your SSH public key (ssh-ed25519 or ssh-rsa)", "")
-			if key != "" {
-				break
-			}
-			if attempt < maxKeyRetries-1 {
-				common.Warning("No SSH key entered. You may be locked out without one.")
-			}
-		}
-		if key == "" {
-			common.Warning("No SSH key provided. Continuing without SSH key.")
-		}
-	}
-
-	// Inject SSH key
-	if key != "" {
-		if !common.IsValidSSHKey(key) {
-			common.Warning("SSH key failed validation (invalid format). Continuing without SSH key.")
-			common.Warning("You may be locked out of the server!")
-		} else if err := injectSSHKey(key); err != nil {
-			common.Error(fmt.Sprintf("CRITICAL: Failed to inject SSH key: %v", err))
-			fmt.Println("\nWithout an SSH key, you will be LOCKED OUT of your server!")
-			fmt.Println("You must fix this issue before proceeding.")
-			os.Exit(1)
-		} else {
-			common.Success("SSH key configured for deploy and root users")
-		}
-	}
-
-	// Install NixOS
+// installNixOS runs the NixOS installation
+func installNixOS() {
 	fmt.Println()
 	common.Info("Installing NixOS...")
 	common.Warning("This takes 10-30 minutes on VPS (downloading packages from cache.nixos.org)")
@@ -200,7 +204,32 @@ func Run(args []string) {
 		common.Error(fmt.Sprintf("Installation failed: %v", err))
 		os.Exit(1)
 	}
+}
 
+// resolveSSHKey gets SSH key from flags or file
+func resolveSSHKey(flags bootstrapFlags) string {
+	if flags.sshKeyFile != "" && flags.sshKey == "" {
+		key, err := readSSHKeyFromFile(flags.sshKeyFile)
+		if err != nil {
+			common.Error(err.Error())
+			os.Exit(1)
+		}
+		return key
+	}
+	return flags.sshKey
+}
+
+// confirmDiskErase prompts user to confirm disk erasure
+func confirmDiskErase(targetDisk string, yes bool) {
+	common.Warning(fmt.Sprintf("This will ERASE %s", targetDisk))
+	if !yes && !common.Confirm("Continue?", false) {
+		fmt.Println("Aborted.")
+		os.Exit(0)
+	}
+}
+
+// completeInstallation finishes installation and reboots
+func completeInstallation() {
 	fmt.Println()
 	common.Header("Installation complete!")
 	fmt.Println("Rebooting in 5 seconds... (Ctrl+C to cancel)")
@@ -209,6 +238,34 @@ func Run(args []string) {
 		common.Warning(fmt.Sprintf("Reboot command failed: %v", err))
 		fmt.Println("Please reboot manually to complete installation.")
 	}
+}
+
+// Run executes the bootstrap command
+func Run(args []string) {
+	flags := parseFlags(args)
+	sshKey := resolveSSHKey(flags)
+
+	if !common.IsRoot() {
+		common.Error("Must be run as root")
+		fmt.Println("Usage: sudo juniper-host bootstrap")
+		os.Exit(1)
+	}
+
+	targetDisk := validateAndDetectDisk(flags.disk)
+
+	common.Header("Juniper Bible - NixOS Bootstrap")
+	fmt.Printf("Disk: %s\n\n", targetDisk)
+
+	confirmDiskErase(targetDisk, flags.yes)
+
+	prepareFilesystems(targetDisk)
+	downloadAndConfigureNixOS(targetDisk)
+
+	sshKey = promptForSSHKey(sshKey)
+	configureSSHKey(sshKey)
+
+	installNixOS()
+	completeInstallation()
 }
 
 func partition(disk string) error {

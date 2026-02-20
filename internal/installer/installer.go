@@ -7,18 +7,8 @@ import (
 	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/common"
 )
 
-// Run executes the install command (requires pre-mounted /mnt)
-func Run(args []string) {
-	// Check root
-	if !common.IsRoot() {
-		common.Error("Must be run as root")
-		fmt.Println("Usage: sudo juniper-host install")
-		os.Exit(1)
-	}
-
-	common.Header("Juniper Bible - NixOS Host Installation")
-
-	// Check if /mnt is mounted
+// checkMounts verifies /mnt and /mnt/boot are mounted
+func checkMounts() {
 	if !common.IsMounted("/mnt") {
 		common.Error("/mnt is not mounted.")
 		fmt.Println()
@@ -38,27 +28,26 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
-	// Check if /mnt/boot is mounted
 	if !common.IsMounted("/mnt/boot") {
 		common.Error("/mnt/boot is not mounted.")
 		fmt.Println("Please mount your boot partition: mount /dev/sda1 /mnt/boot")
 		os.Exit(1)
 	}
+}
 
-	// Ensure /mnt/etc/nixos exists for configuration
+// downloadAndInstall generates config, downloads config, and runs nixos-install
+func downloadAndInstall() {
 	if err := os.MkdirAll("/mnt/etc/nixos", 0755); err != nil {
 		common.Error(fmt.Sprintf("Failed to create /mnt/etc/nixos: %v", err))
 		os.Exit(1)
 	}
 
-	// Step 1: Generate hardware config
 	common.Info("Generating hardware configuration...")
 	if err := common.Run("nixos-generate-config", "--root", "/mnt"); err != nil {
 		common.Error(fmt.Sprintf("Failed to generate hardware config: %v", err))
 		os.Exit(1)
 	}
 
-	// Step 2: Download configuration
 	fmt.Println()
 	common.Info("Downloading Juniper Bible configuration...")
 	configURL := common.RepoBase + "/configuration.nix"
@@ -67,7 +56,6 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
-	// Step 3: Install NixOS
 	fmt.Println()
 	common.Info("Installing NixOS...")
 	common.Warning("This takes 10-30 minutes on VPS (downloading packages from cache.nixos.org)")
@@ -77,8 +65,10 @@ func Run(args []string) {
 		common.Error(fmt.Sprintf("Installation failed: %v", err))
 		os.Exit(1)
 	}
+}
 
-	// Done
+// printPostInstallInstructions prints instructions after installation
+func printPostInstallInstructions() {
 	fmt.Println()
 	common.Header("Installation complete!")
 	fmt.Println("IMPORTANT: Before rebooting, you should:")
@@ -110,4 +100,18 @@ func Run(args []string) {
 	fmt.Println("   ssh deploy@<server-ip>")
 	fmt.Println("   deploy-juniper")
 	fmt.Println()
+}
+
+// Run executes the install command (requires pre-mounted /mnt)
+func Run(args []string) {
+	if !common.IsRoot() {
+		common.Error("Must be run as root")
+		fmt.Println("Usage: sudo juniper-host install")
+		os.Exit(1)
+	}
+
+	common.Header("Juniper Bible - NixOS Host Installation")
+	checkMounts()
+	downloadAndInstall()
+	printPostInstallInstructions()
 }

@@ -44,31 +44,23 @@ func Run(args []string) {
 	runRemoteUpgrade(*host, *sshKey, *yes, *configOnly)
 }
 
-func runLocalUpgrade(yes, configOnly bool) {
-	common.Header("Juniper Bible - Local Upgrade")
-
-	// Show current vs latest version info
-	common.Info("Checking for updates...")
-
-	// Backup current config
+// backupAndDownloadConfig backs up current config and downloads new one
+func backupAndDownloadConfig() (sshKeys []string) {
 	common.Info("Backing up current configuration...")
 	if err := common.Run("cp", "/etc/nixos/configuration.nix", "/etc/nixos/configuration.nix.pre-upgrade"); err != nil {
 		common.Error(fmt.Sprintf("Failed to backup config: %v", err))
 		os.Exit(1)
 	}
 
-	// Extract SSH keys from current config
 	common.Info("Extracting SSH keys from current configuration...")
-	sshKeys := extractSSHKeys("/etc/nixos/configuration.nix")
+	sshKeys = extractSSHKeys("/etc/nixos/configuration.nix")
 
-	// Download new configuration
 	common.Info("Downloading latest configuration...")
 	if err := common.DownloadFile(configURL, "/etc/nixos/configuration.nix.new"); err != nil {
 		common.Error(fmt.Sprintf("Failed to download configuration: %v", err))
 		os.Exit(1)
 	}
 
-	// Inject SSH keys into new config
 	if len(sshKeys) > 0 {
 		common.Info(fmt.Sprintf("Injecting %d SSH key(s) into new configuration...", len(sshKeys)))
 		if err := injectSSHKeys("/etc/nixos/configuration.nix.new", sshKeys); err != nil {
@@ -76,8 +68,11 @@ func runLocalUpgrade(yes, configOnly bool) {
 			os.Exit(1)
 		}
 	}
+	return
+}
 
-	// Show diff
+// showDiffAndConfirm shows diff and asks for confirmation
+func showDiffAndConfirm(yes bool) {
 	fmt.Println()
 	common.Info("Configuration changes:")
 	diffCmd := exec.Command("diff", "-u", "/etc/nixos/configuration.nix.pre-upgrade", "/etc/nixos/configuration.nix.new")
@@ -85,7 +80,6 @@ func runLocalUpgrade(yes, configOnly bool) {
 	diffCmd.Stderr = os.Stderr
 	diffCmd.Run() // Ignore error - diff returns non-zero if files differ
 
-	// Confirm
 	if !yes {
 		fmt.Println()
 		if !common.Confirm("Apply this upgrade?", true) {
@@ -94,8 +88,10 @@ func runLocalUpgrade(yes, configOnly bool) {
 			os.Exit(0)
 		}
 	}
+}
 
-	// Apply new config
+// applyLocalConfig applies new config and optionally rebuilds NixOS
+func applyLocalConfig(configOnly bool) {
 	common.Info("Applying new configuration...")
 	if err := os.Rename("/etc/nixos/configuration.nix.new", "/etc/nixos/configuration.nix"); err != nil {
 		common.Error(fmt.Sprintf("Failed to apply configuration: %v", err))
@@ -109,7 +105,6 @@ func runLocalUpgrade(yes, configOnly bool) {
 		return
 	}
 
-	// Rebuild NixOS
 	fmt.Println()
 	common.Info("Rebuilding NixOS...")
 	if err := common.Run("nixos-rebuild", "switch"); err != nil {
@@ -126,18 +121,27 @@ func runLocalUpgrade(yes, configOnly bool) {
 	common.Success("Upgrade complete!")
 }
 
-func runRemoteUpgrade(host, sshKeyPath string, yes, configOnly bool) {
-	common.Header("Juniper Bible - Remote Upgrade")
-	common.Info(fmt.Sprintf("Target: %s", host))
+func runLocalUpgrade(yes, configOnly bool) {
+	common.Header("Juniper Bible - Local Upgrade")
+	common.Info("Checking for updates...")
 
-	// Build SSH command base
+	backupAndDownloadConfig()
+	showDiffAndConfirm(yes)
+	applyLocalConfig(configOnly)
+}
+
+// buildSSHArgs constructs SSH command arguments
+func buildSSHArgs(sshKeyPath string) []string {
 	sshArgs := []string{}
 	if sshKeyPath != "" {
 		sshArgs = append(sshArgs, "-i", sshKeyPath)
 	}
 	sshArgs = append(sshArgs, "-o", "StrictHostKeyChecking=accept-new")
+	return sshArgs
+}
 
-	// Test SSH connection
+// testSSHConnection tests SSH connectivity to the host
+func testSSHConnection(sshArgs []string, host string) {
 	common.Info("Testing SSH connection...")
 	testCmd := exec.Command("ssh", append(sshArgs, host, "echo 'Connected'")...)
 	testCmd.Stderr = os.Stderr
@@ -146,8 +150,48 @@ func runRemoteUpgrade(host, sshKeyPath string, yes, configOnly bool) {
 		os.Exit(1)
 	}
 	common.Success("SSH connection OK")
+}
 
-	// Run upgrade script remotely
+// getRebuildScript returns the rebuild portion of the upgrade script
+func getRebuildScript(configOnly bool) string {
+	if configOnly {
+		return `echo "==> Rebuild skipped (--config-only)"`
+	}
+	return `echo "==> Rebuilding NixOS..."
+if ! nixos-rebuild switch; then
+  echo "==> Rebuild failed, restoring backup..."
+  mv "$BACKUP" "$CONFIG"
+  exit 1
+fi`
+}
+
+// confirmRemoteUpgrade shows what will happen and asks for confirmation
+func confirmRemoteUpgrade(yes, configOnly bool) {
+	if yes {
+		return
+	}
+	fmt.Println()
+	fmt.Println("This will:")
+	fmt.Println("  1. Backup current configuration")
+	fmt.Println("  2. Download latest configuration from GitHub")
+	fmt.Println("  3. Preserve existing SSH keys")
+	if !configOnly {
+		fmt.Println("  4. Rebuild NixOS with new configuration")
+	}
+	fmt.Println()
+	if !common.Confirm("Proceed with upgrade?", true) {
+		common.Info("Upgrade cancelled")
+		os.Exit(0)
+	}
+}
+
+func runRemoteUpgrade(host, sshKeyPath string, yes, configOnly bool) {
+	common.Header("Juniper Bible - Remote Upgrade")
+	common.Info(fmt.Sprintf("Target: %s", host))
+
+	sshArgs := buildSSHArgs(sshKeyPath)
+	testSSHConnection(sshArgs, host)
+
 	upgradeScript := fmt.Sprintf(`
 set -euo pipefail
 
@@ -159,8 +203,6 @@ echo "==> Backing up current configuration..."
 cp "$CONFIG" "$BACKUP"
 
 echo "==> Extracting SSH keys..."
-# Extract only actual SSH keys (ssh-ed25519, ssh-rsa, ecdsa-*)
-# The pattern must match: "ssh-TYPE BASE64KEY [COMMENT]"
 DEPLOY_KEYS=$(grep -A20 'users.users.deploy.openssh.authorizedKeys.keys' "$CONFIG" | grep -oP '^\s*"(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+)\s+[A-Za-z0-9+/]+=*(\s+[^"]*)?(?=")' | head -20 || true)
 ROOT_KEYS=$(grep -A20 'users.users.root.openssh.authorizedKeys.keys' "$CONFIG" | grep -oP '^\s*"(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+)\s+[A-Za-z0-9+/]+=*(\s+[^"]*)?(?=")' | head -20 || true)
 
@@ -169,14 +211,11 @@ curl -fsSL "$CONFIG_URL" -o "$CONFIG.new"
 
 echo "==> Injecting SSH keys..."
 if [ -n "$DEPLOY_KEYS" ]; then
-  # Remove the placeholder comment
   sed -i '/users.users.deploy.openssh.authorizedKeys.keys = \[/,/\];/{
     /# "ssh-ed25519 AAAA... your-key-here"/d
   }' "$CONFIG.new"
-  # Inject actual keys (each key is a complete line with the opening quote)
   while IFS= read -r key; do
     [ -z "$key" ] && continue
-    # key already has the opening quote, add closing quote
     key_line=$(echo "$key" | sed 's/^\s*/    /')'"'
     sed -i "/users.users.deploy.openssh.authorizedKeys.keys = \[/a\\$key_line" "$CONFIG.new"
   done <<< "$DEPLOY_KEYS"
@@ -204,33 +243,9 @@ mv "$CONFIG.new" "$CONFIG"
 
 echo ""
 echo "==> Upgrade complete!"
-`, configURL, func() string {
-		if configOnly {
-			return `echo "==> Rebuild skipped (--config-only)"`
-		}
-		return `echo "==> Rebuilding NixOS..."
-if ! nixos-rebuild switch; then
-  echo "==> Rebuild failed, restoring backup..."
-  mv "$BACKUP" "$CONFIG"
-  exit 1
-fi`
-	}())
+`, configURL, getRebuildScript(configOnly))
 
-	if !yes {
-		fmt.Println()
-		fmt.Println("This will:")
-		fmt.Println("  1. Backup current configuration")
-		fmt.Println("  2. Download latest configuration from GitHub")
-		fmt.Println("  3. Preserve existing SSH keys")
-		if !configOnly {
-			fmt.Println("  4. Rebuild NixOS with new configuration")
-		}
-		fmt.Println()
-		if !common.Confirm("Proceed with upgrade?", true) {
-			common.Info("Upgrade cancelled")
-			os.Exit(0)
-		}
-	}
+	confirmRemoteUpgrade(yes, configOnly)
 
 	fmt.Println()
 	common.Info("Running upgrade on remote host...")
@@ -248,48 +263,63 @@ fi`
 	common.Success("Remote upgrade complete!")
 }
 
+// isSSHKeyLine checks if a line contains an SSH key
+func isSSHKeyLine(line string) bool {
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, "\"ssh-") || strings.HasPrefix(line, "\"ecdsa-")
+}
+
+// extractKeyFromLine extracts the SSH key from a quoted line
+func extractKeyFromLine(line string) string {
+	return strings.Trim(strings.TrimSpace(line), "\"")
+}
+
+// containsKey checks if a key already exists in the slice
+func containsKey(keys []string, key string) bool {
+	for _, k := range keys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// processSSHKeyLine processes a single line and adds key to slice if valid
+func processSSHKeyLine(line string, keys *[]string) {
+	if !isSSHKeyLine(line) {
+		return
+	}
+	key := extractKeyFromLine(line)
+	if key != "" && !containsKey(*keys, key) {
+		*keys = append(*keys, key)
+	}
+}
+
+// parseLine determines if we enter/exit keys section and processes key lines
+func parseLine(line string, inKeysSection bool, keys *[]string) bool {
+	if strings.Contains(line, "authorizedKeys.keys = [") {
+		return true
+	}
+	if strings.Contains(line, "];") {
+		return false
+	}
+	if inKeysSection {
+		processSSHKeyLine(line, keys)
+	}
+	return inKeysSection
+}
+
 func extractSSHKeys(configPath string) []string {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil
 	}
 
-	content := string(data)
 	var keys []string
-
-	// Find keys in both deploy and root sections
-	lines := strings.Split(content, "\n")
 	inKeysSection := false
-	for _, line := range lines {
-		if strings.Contains(line, "authorizedKeys.keys = [") {
-			inKeysSection = true
-			continue
-		}
-		if inKeysSection {
-			if strings.Contains(line, "];") {
-				inKeysSection = false
-				continue
-			}
-			// Extract key from line like '    "ssh-ed25519 AAAA..."'
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "\"ssh-") || strings.HasPrefix(line, "\"ecdsa-") {
-				// Remove surrounding quotes
-				key := strings.Trim(line, "\"")
-				// Check if we already have this key
-				found := false
-				for _, k := range keys {
-					if k == key {
-						found = true
-						break
-					}
-				}
-				if !found && key != "" {
-					keys = append(keys, key)
-				}
-			}
-		}
+	for _, line := range strings.Split(string(data), "\n") {
+		inKeysSection = parseLine(line, inKeysSection, &keys)
 	}
-
 	return keys
 }
 

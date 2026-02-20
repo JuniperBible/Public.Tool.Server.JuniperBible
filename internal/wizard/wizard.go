@@ -24,33 +24,27 @@ const (
 	TLSModeSelfSigned = "5"
 )
 
-// Run executes the setup wizard
-func Run(args []string) {
-	// Check if already completed
-	if common.FileExists(setupDoneFlag) {
-		return
-	}
+// wizardConfig holds all collected wizard configuration
+type wizardConfig struct {
+	hostname   string
+	domain     string
+	tlsMode    string
+	cfAPIToken string
+	certPath   string
+	keyPath    string
+	sshKeys    []string
+	deployNow  bool
+}
 
-	// Gather system info
-	hostname := common.GetHostname()
-	ip := common.GetIP()
-	osVersion := common.GetOSVersion()
-	kernel := common.GetKernel()
-
-	// Welcome screen
-	common.ClearScreen()
-	common.Banner(hostname, ip, osVersion, kernel)
-	common.WaitForEnter("Press Enter to continue...")
-
-	// Step 1: Hostname
+// promptHostname prompts for and validates hostname
+func promptHostname(current string) string {
 	common.Step(1, 5, "Hostname")
-	fmt.Printf("Current hostname: %s%s%s\n\n", common.Cyan, hostname, common.Reset)
-	var newHostname string
+	fmt.Printf("Current hostname: %s%s%s\n\n", common.Cyan, current, common.Reset)
 	const maxRetries = 5
 	for attempts := 0; attempts < maxRetries; attempts++ {
-		newHostname = common.Prompt("Enter new hostname (or press Enter to keep current)", hostname)
-		if common.IsValidHostname(newHostname) {
-			break
+		hostname := common.Prompt("Enter new hostname (or press Enter to keep current)", current)
+		if common.IsValidHostname(hostname) {
+			return hostname
 		}
 		common.Error("Invalid hostname. Use alphanumerics and hyphens only (1-63 chars).")
 		if attempts == maxRetries-1 {
@@ -58,16 +52,19 @@ func Run(args []string) {
 			os.Exit(1)
 		}
 	}
+	return current
+}
 
-	// Step 2: Domain
+// promptDomain prompts for and validates domain
+func promptDomain() string {
 	common.Step(2, 5, "Domain")
 	fmt.Println("Enter your domain (e.g., juniperbible.org)")
 	fmt.Println()
-	var domain string
+	const maxRetries = 5
 	for attempts := 0; attempts < maxRetries; attempts++ {
-		domain = common.Prompt("Domain", "localhost")
+		domain := common.Prompt("Domain", "localhost")
 		if common.IsValidDomain(domain) {
-			break
+			return domain
 		}
 		common.Error("Invalid domain. Use alphanumerics, hyphens, and dots only.")
 		if attempts == maxRetries-1 {
@@ -75,8 +72,35 @@ func Run(args []string) {
 			os.Exit(1)
 		}
 	}
+	return "localhost"
+}
 
-	// Step 3: TLS Mode
+// promptACMEDNS prompts for Cloudflare API token
+func promptACMEDNS() (token string, fallback bool) {
+	fmt.Println()
+	fmt.Println("Enter your Cloudflare API token (needs Zone:DNS:Edit permission):")
+	token = common.Prompt("CF API Token", "")
+	if token == "" {
+		common.Warning("API token required for DNS-01. Falling back to self-signed.")
+		return "", true
+	}
+	return token, false
+}
+
+// promptCustomCert prompts for certificate paths
+func promptCustomCert() (certPath, keyPath string, fallback bool) {
+	fmt.Println()
+	certPath = common.Prompt("Certificate path", "")
+	keyPath = common.Prompt("Key path", "")
+	if !common.FileExists(certPath) || !common.FileExists(keyPath) {
+		common.Warning("Certificate files not found. Falling back to self-signed.")
+		return "", "", true
+	}
+	return certPath, keyPath, false
+}
+
+// printTLSOptions displays TLS mode options
+func printTLSOptions() {
 	common.Step(3, 5, "TLS Certificate Mode")
 	fmt.Println("How should HTTPS certificates be handled?")
 	fmt.Println()
@@ -86,50 +110,67 @@ func Run(args []string) {
 	fmt.Println("  4) HTTP only     - No HTTPS (for testing only)")
 	fmt.Println("  5) Self-signed   - Works everywhere, browser shows warning (default)")
 	fmt.Println()
+}
 
-	tlsMode := common.Prompt("TLS mode", "5")
-	var cfAPIToken, certPath, keyPath string
+// handleACMEDNSMode handles ACME DNS-01 mode configuration
+func handleACMEDNSMode() (tlsMode, cfAPIToken string) {
+	token, fallback := promptACMEDNS()
+	if fallback {
+		return TLSModeSelfSigned, ""
+	}
+	return TLSModeACMEDNS, token
+}
 
-	switch tlsMode {
+// handleCustomCertMode handles custom certificate mode configuration
+func handleCustomCertMode() (tlsMode, certPath, keyPath string) {
+	cert, key, fallback := promptCustomCert()
+	if fallback {
+		return TLSModeSelfSigned, "", ""
+	}
+	return TLSModeCustomCert, cert, key
+}
+
+// handleTLSMode handles the selected TLS mode and returns config values
+func handleTLSMode(mode string) (tlsMode, cfAPIToken, certPath, keyPath string) {
+	switch mode {
 	case TLSModeACMEHTTP:
 		common.Info("Using ACME HTTP-01 challenge")
+		return mode, "", "", ""
 	case TLSModeACMEDNS:
-		fmt.Println()
-		fmt.Println("Enter your Cloudflare API token (needs Zone:DNS:Edit permission):")
-		cfAPIToken = common.Prompt("CF API Token", "")
-		if cfAPIToken == "" {
-			common.Warning("API token required for DNS-01. Falling back to self-signed.")
-			tlsMode = TLSModeSelfSigned
-		}
+		tlsMode, cfAPIToken = handleACMEDNSMode()
+		return tlsMode, cfAPIToken, "", ""
 	case TLSModeCustomCert:
-		fmt.Println()
-		certPath = common.Prompt("Certificate path", "")
-		keyPath = common.Prompt("Key path", "")
-		if !common.FileExists(certPath) || !common.FileExists(keyPath) {
-			common.Warning("Certificate files not found. Falling back to self-signed.")
-			tlsMode = TLSModeSelfSigned
-		}
+		tlsMode, certPath, keyPath = handleCustomCertMode()
+		return tlsMode, "", certPath, keyPath
 	case TLSModeHTTPOnly:
 		common.Info("Using HTTP only (no TLS)")
+		return mode, "", "", ""
 	default:
-		tlsMode = TLSModeSelfSigned
 		common.Info("Using self-signed certificate")
+		return TLSModeSelfSigned, "", "", ""
 	}
+}
 
-	// Step 4: SSH Keys
+// promptTLSMode prompts for TLS configuration
+func promptTLSMode() (tlsMode, cfAPIToken, certPath, keyPath string) {
+	printTLSOptions()
+	mode := common.Prompt("TLS mode", "5")
+	return handleTLSMode(mode)
+}
+
+// printSSHKeyPromptHeader prints the SSH key prompt header
+func printSSHKeyPromptHeader() {
 	common.Step(4, 5, "SSH Keys")
 	fmt.Println("Add SSH public keys for server access (deploy and root users).")
 	fmt.Println("Paste one key per line. Enter empty line when done.")
 	fmt.Println()
 	fmt.Printf("%sWARNING: If you don't add a key, you may be locked out!%s\n\n", common.Yellow, common.Reset)
+}
 
-	const maxSSHKeys = 50
+// collectSSHKeys collects SSH keys from user input
+func collectSSHKeys(maxKeys int) []string {
 	var sshKeys []string
-	for {
-		if len(sshKeys) >= maxSSHKeys {
-			common.Warning(fmt.Sprintf("Maximum of %d SSH keys reached.", maxSSHKeys))
-			break
-		}
+	for len(sshKeys) < maxKeys {
 		key := common.Prompt("SSH key (or Enter to finish)", "")
 		if key == "" {
 			break
@@ -141,40 +182,51 @@ func Run(args []string) {
 			common.Error("Invalid key format. Keys should be: ssh-ed25519, ssh-rsa, or ecdsa-sha2-nistp256/384/521")
 		}
 	}
+	return sshKeys
+}
 
-	if len(sshKeys) == 0 {
-		fmt.Println()
-		common.Error("No SSH keys added! You may be locked out after reboot.")
-		if !common.Confirm("Continue anyway?", false) {
-			fmt.Println("Setup cancelled. Run 'juniper-host wizard' to try again.")
-			os.Exit(1)
-		}
-	}
-
-	// Step 5: Deploy
-	common.Step(5, 5, "Deploy Site")
-	fmt.Println("Would you like to deploy Juniper Bible now?")
+// warnNoSSHKeys warns if no SSH keys were added
+func warnNoSSHKeys() {
 	fmt.Println()
-	deployNow := common.Confirm("Deploy site?", true)
+	common.Error("No SSH keys added! You may be locked out after reboot.")
+	if !common.Confirm("Continue anyway?", false) {
+		fmt.Println("Setup cancelled. Run 'juniper-host wizard' to try again.")
+		os.Exit(1)
+	}
+}
 
-	// TLS mode display name
+// promptSSHKeys prompts for SSH keys
+func promptSSHKeys() []string {
+	const maxSSHKeys = 50
+	printSSHKeyPromptHeader()
+	sshKeys := collectSSHKeys(maxSSHKeys)
+	if len(sshKeys) >= maxSSHKeys {
+		common.Warning(fmt.Sprintf("Maximum of %d SSH keys reached.", maxSSHKeys))
+	}
+	if len(sshKeys) == 0 {
+		warnNoSSHKeys()
+	}
+	return sshKeys
+}
+
+// showSummary displays configuration summary and prompts for confirmation
+func showSummary(cfg wizardConfig) {
 	tlsModeName := map[string]string{
 		TLSModeACMEHTTP:   "ACME HTTP-01",
 		TLSModeACMEDNS:    "ACME DNS-01 (Cloudflare)",
 		TLSModeCustomCert: "Custom certificate",
 		TLSModeHTTPOnly:   "HTTP only",
 		TLSModeSelfSigned: "Self-signed",
-	}[tlsMode]
+	}[cfg.tlsMode]
 
-	// Summary
 	common.ClearScreen()
 	fmt.Printf("%sConfiguration Summary%s\n\n", common.Bold, common.Reset)
-	fmt.Printf("  Hostname: %s%s%s\n", common.Cyan, newHostname, common.Reset)
-	fmt.Printf("  Domain:   %s%s%s\n", common.Cyan, domain, common.Reset)
+	fmt.Printf("  Hostname: %s%s%s\n", common.Cyan, cfg.hostname, common.Reset)
+	fmt.Printf("  Domain:   %s%s%s\n", common.Cyan, cfg.domain, common.Reset)
 	fmt.Printf("  TLS Mode: %s%s%s\n", common.Cyan, tlsModeName, common.Reset)
-	fmt.Printf("  SSH Keys: %s%d key(s)%s\n", common.Cyan, len(sshKeys), common.Reset)
+	fmt.Printf("  SSH Keys: %s%d key(s)%s\n", common.Cyan, len(cfg.sshKeys), common.Reset)
 	deployStr := "No"
-	if deployNow {
+	if cfg.deployNow {
 		deployStr = "Yes"
 	}
 	fmt.Printf("  Deploy:   %s%s%s\n", common.Cyan, deployStr, common.Reset)
@@ -184,37 +236,40 @@ func Run(args []string) {
 		fmt.Println("Setup cancelled. Run 'juniper-host wizard' to try again.")
 		os.Exit(1)
 	}
+}
 
-	// Apply configuration
-	fmt.Println()
-	fmt.Printf("%sApplying configuration...%s\n\n", common.Bold, common.Reset)
-
-	// Backup config (fatal if fails - we need to be able to restore)
+// backupConfig backs up the NixOS configuration
+func backupConfig() {
 	if err := copyFile(nixosConfig, nixosConfig+".backup"); err != nil {
 		common.Error(fmt.Sprintf("Failed to backup config: %v", err))
 		os.Exit(1)
 	}
+}
 
-	// Update configuration
-	if err := updateConfig(newHostname, sshKeys); err != nil {
+// updateNixOSConfig updates hostname and SSH keys in the config
+func updateNixOSConfig(hostname string, sshKeys []string) {
+	if err := updateConfig(hostname, sshKeys); err != nil {
 		common.Error(fmt.Sprintf("Failed to update configuration: %v", err))
 		os.Exit(1)
 	}
 	common.Success("Configuration updated")
+}
 
-	// Generate Caddyfile
-	if err := generateCaddyfile(domain, tlsMode, cfAPIToken, certPath, keyPath); err != nil {
+// generateCaddyConfig generates the Caddyfile configuration
+func generateCaddyConfig(cfg wizardConfig) {
+	if err := generateCaddyfile(cfg.domain, cfg.tlsMode, cfg.cfAPIToken, cfg.certPath, cfg.keyPath); err != nil {
 		common.Error(fmt.Sprintf("Failed to generate Caddyfile: %v", err))
 		os.Exit(1)
 	}
 	common.Success("Caddyfile generated")
+}
 
-	// Rebuild NixOS
+// rebuildNixOS rebuilds NixOS with the new configuration
+func rebuildNixOS() {
 	fmt.Println()
 	fmt.Println("Rebuilding NixOS (this may take a minute)...")
 	if err := common.Run("nixos-rebuild", "switch"); err != nil {
 		common.Error("NixOS rebuild failed. Restoring backup...")
-		// Attempt to restore the backup
 		if restoreErr := copyFile(nixosConfig+".backup", nixosConfig); restoreErr != nil {
 			common.Error(fmt.Sprintf("Failed to restore backup: %v", restoreErr))
 			fmt.Printf("  Manual restore: sudo cp %s.backup %s\n", nixosConfig, nixosConfig)
@@ -224,24 +279,39 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 	common.Success("NixOS rebuilt successfully")
+}
 
-	// Mark setup complete (world-readable so non-root can check it)
+// applyConfiguration applies the collected configuration
+func applyConfiguration(cfg wizardConfig) {
+	fmt.Println()
+	fmt.Printf("%sApplying configuration...%s\n\n", common.Bold, common.Reset)
+
+	backupConfig()
+	updateNixOSConfig(cfg.hostname, cfg.sshKeys)
+	generateCaddyConfig(cfg)
+	rebuildNixOS()
+
 	if err := os.WriteFile(setupDoneFlag, []byte{}, 0644); err != nil {
 		common.Warning(fmt.Sprintf("Failed to create setup flag: %v", err))
 	}
+}
 
-	// Deploy if requested
-	if deployNow {
-		fmt.Println()
-		fmt.Println("Deploying Juniper Bible...")
-		if err := common.Run("/etc/deploy-juniper.sh"); err != nil {
-			common.Warning("Site deployment failed. You can try again with: deploy-juniper")
-		} else {
-			common.Success("Site deployed successfully")
-		}
+// deploySite deploys the site if requested
+func deploySite(deploy bool) {
+	if !deploy {
+		return
 	}
+	fmt.Println()
+	fmt.Println("Deploying Juniper Bible...")
+	if err := common.Run("/etc/deploy-juniper.sh"); err != nil {
+		common.Warning("Site deployment failed. You can try again with: deploy-juniper")
+	} else {
+		common.Success("Site deployed successfully")
+	}
+}
 
-	// Done
+// showCompletionMessage displays final success message
+func showCompletionMessage(domain string) {
 	fmt.Println()
 	fmt.Printf("%s%sSetup Complete!%s\n\n", common.Green, common.Bold, common.Reset)
 	fmt.Println("Your Juniper Bible server is ready.")
@@ -258,6 +328,34 @@ func Run(args []string) {
 	fmt.Println("  deploy-juniper              - Update the site")
 	fmt.Println("  sudo nixos-rebuild switch   - Apply config changes")
 	fmt.Println()
+}
+
+// Run executes the setup wizard
+func Run(args []string) {
+	if common.FileExists(setupDoneFlag) {
+		return
+	}
+
+	hostname := common.GetHostname()
+	common.ClearScreen()
+	common.Banner(hostname, common.GetIP(), common.GetOSVersion(), common.GetKernel())
+	common.WaitForEnter("Press Enter to continue...")
+
+	var cfg wizardConfig
+	cfg.hostname = promptHostname(hostname)
+	cfg.domain = promptDomain()
+	cfg.tlsMode, cfg.cfAPIToken, cfg.certPath, cfg.keyPath = promptTLSMode()
+	cfg.sshKeys = promptSSHKeys()
+
+	common.Step(5, 5, "Deploy Site")
+	fmt.Println("Would you like to deploy Juniper Bible now?")
+	fmt.Println()
+	cfg.deployNow = common.Confirm("Deploy site?", true)
+
+	showSummary(cfg)
+	applyConfiguration(cfg)
+	deploySite(cfg.deployNow)
+	showCompletionMessage(cfg.domain)
 }
 
 func copyFile(src, dst string) error {
@@ -279,53 +377,55 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
+// updateHostname updates the hostname in the config content
+func updateHostname(content, hostname string) (string, error) {
+	hostnameRe := regexp.MustCompile(`networking\.hostName = "[^"]*"`)
+	escapedHostname := escapeNixString(hostname)
+	newContent := hostnameRe.ReplaceAllLiteralString(content, fmt.Sprintf(`networking.hostName = "%s"`, escapedHostname))
+	if newContent == content {
+		return "", fmt.Errorf("failed to find hostname configuration in file")
+	}
+	return newContent, nil
+}
+
+// buildSSHKeysNix builds the Nix SSH keys list string
+func buildSSHKeysNix(sshKeys []string) string {
+	var keysList strings.Builder
+	for _, key := range sshKeys {
+		escapedKey := escapeNixString(key)
+		keysList.WriteString(fmt.Sprintf("    \"%s\"\n", escapedKey))
+	}
+	return keysList.String()
+}
+
+// updateUserSSHKeys updates SSH keys for a specific user in the config
+func updateUserSSHKeys(content, user, keysListStr string) string {
+	var keysNix strings.Builder
+	keysNix.WriteString(fmt.Sprintf("users.users.%s.openssh.authorizedKeys.keys = [\n", user))
+	keysNix.WriteString(keysListStr)
+	keysNix.WriteString("  ];")
+
+	pattern := fmt.Sprintf(`users\.users\.%s\.openssh\.authorizedKeys\.keys = \[[\s\S]*?\];`, user)
+	keysRe := regexp.MustCompile(pattern)
+	return keysRe.ReplaceAllLiteralString(content, keysNix.String())
+}
+
 func updateConfig(hostname string, sshKeys []string) error {
 	data, err := os.ReadFile(nixosConfig)
 	if err != nil {
 		return err
 	}
-	content := string(data)
-	originalContent := content
 
-	// Update hostname (escape for regex replacement)
-	hostnameRe := regexp.MustCompile(`networking\.hostName = "[^"]*"`)
-	escapedHostname := escapeNixString(hostname)
-	content = hostnameRe.ReplaceAllLiteralString(content, fmt.Sprintf(`networking.hostName = "%s"`, escapedHostname))
-	if content == originalContent {
-		return fmt.Errorf("failed to find hostname configuration in file")
+	content, err := updateHostname(string(data), hostname)
+	if err != nil {
+		return err
 	}
 
-	// Update SSH keys for both deploy and root users
 	if len(sshKeys) > 0 {
 		beforeSSHKeys := content
-
-		// Build the keys list
-		var keysList strings.Builder
-		for _, key := range sshKeys {
-			escapedKey := escapeNixString(key)
-			keysList.WriteString(fmt.Sprintf("    \"%s\"\n", escapedKey))
-		}
-		keysListStr := keysList.String()
-
-		// Update deploy user keys
-		var deployKeysNix strings.Builder
-		deployKeysNix.WriteString("users.users.deploy.openssh.authorizedKeys.keys = [\n")
-		deployKeysNix.WriteString(keysListStr)
-		deployKeysNix.WriteString("  ];")
-
-		deployKeysRe := regexp.MustCompile(`users\.users\.deploy\.openssh\.authorizedKeys\.keys = \[[\s\S]*?\];`)
-		content = deployKeysRe.ReplaceAllLiteralString(content, deployKeysNix.String())
-
-		// Update root user keys
-		var rootKeysNix strings.Builder
-		rootKeysNix.WriteString("users.users.root.openssh.authorizedKeys.keys = [\n")
-		rootKeysNix.WriteString(keysListStr)
-		rootKeysNix.WriteString("  ];")
-
-		rootKeysRe := regexp.MustCompile(`users\.users\.root\.openssh\.authorizedKeys\.keys = \[[\s\S]*?\];`)
-		content = rootKeysRe.ReplaceAllLiteralString(content, rootKeysNix.String())
-
-		// Verify SSH keys were inserted
+		keysListStr := buildSSHKeysNix(sshKeys)
+		content = updateUserSSHKeys(content, "deploy", keysListStr)
+		content = updateUserSSHKeys(content, "root", keysListStr)
 		if content == beforeSSHKeys {
 			return fmt.Errorf("failed to find SSH key configuration sections in file")
 		}

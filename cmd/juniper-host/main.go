@@ -13,29 +13,39 @@ import (
 
 var version = "dev"
 
+// commandHandlers maps commands to their handlers
+var commandHandlers = map[string]func([]string){
+	"bootstrap": bootstrap.Run,
+	"install":   installer.Run,
+	"wizard":    wizard.Run,
+	"setup":     wizard.Run,
+	"upgrade":   upgrade.Run,
+	"deploy":    deploycmd.Run,
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
 	}
 
-	switch os.Args[1] {
-	case "bootstrap":
-		bootstrap.Run(os.Args[2:])
-	case "install":
-		installer.Run(os.Args[2:])
-	case "wizard", "setup":
-		wizard.Run(os.Args[2:])
-	case "upgrade":
-		upgrade.Run(os.Args[2:])
-	case "deploy":
-		deploycmd.Run(os.Args[2:])
+	cmd := os.Args[1]
+	args := os.Args[2:]
+
+	// Check for handlers
+	if handler, ok := commandHandlers[cmd]; ok {
+		handler(args)
+		return
+	}
+
+	// Built-in commands
+	switch cmd {
 	case "version", "--version", "-v":
 		fmt.Printf("juniper-host %s\n", version)
 	case "help", "--help", "-h":
 		printUsage()
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
 		printUsage()
 		os.Exit(1)
 	}

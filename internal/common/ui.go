@@ -101,24 +101,32 @@ func Prompt(question, defaultVal string) string {
 }
 
 
-// Confirm asks for yes/no confirmation
-func Confirm(question string, defaultYes bool) bool {
-	reader := bufio.NewReader(os.Stdin)
-	prompt := "[y/N]"
+// getConfirmPrompt returns the appropriate prompt string
+func getConfirmPrompt(defaultYes bool) string {
 	if defaultYes {
-		prompt = "[Y/n]"
+		return "[Y/n]"
 	}
-	fmt.Printf("%s %s: ", question, prompt)
-	input, err := reader.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return defaultYes
-	}
-	input = strings.TrimSpace(strings.ToLower(input))
+	return "[y/N]"
+}
 
+// parseConfirmInput parses the user input for confirmation
+func parseConfirmInput(input string, defaultYes bool) bool {
+	input = strings.TrimSpace(strings.ToLower(input))
 	if input == "" {
 		return defaultYes
 	}
 	return input == "y" || input == "yes"
+}
+
+// Confirm asks for yes/no confirmation
+func Confirm(question string, defaultYes bool) bool {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("%s %s: ", question, getConfirmPrompt(defaultYes))
+	input, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return defaultYes
+	}
+	return parseConfirmInput(input, defaultYes)
 }
 
 // WaitForEnter waits for the user to press Enter

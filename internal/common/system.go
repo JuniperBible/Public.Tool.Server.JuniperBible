@@ -100,18 +100,47 @@ func GetPartitions(disk string) (biosGrub, esp, root string) {
 // MaxDownloadSize is the maximum file size for downloads (100MB)
 const MaxDownloadSize = 100 * 1024 * 1024
 
-// DownloadFile downloads a file from URL to destination
-func DownloadFile(url, dest string) error {
-	// Validate URL scheme (only allow https for security)
+// validateDownloadParams validates URL and destination for download
+func validateDownloadParams(url, dest string) error {
 	if !strings.HasPrefix(url, "https://") {
 		return fmt.Errorf("only HTTPS URLs are allowed: %s", url)
 	}
-
-	// Check if destination is a symlink (prevent symlink attacks)
 	if info, err := os.Lstat(dest); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("destination is a symlink: %s", dest)
 		}
+	}
+	return nil
+}
+
+// writeDownloadToFile writes response body to file with size limit
+func writeDownloadToFile(body io.ReadCloser, dest string) error {
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+
+	limitedReader := io.LimitReader(body, MaxDownloadSize+1)
+	written, copyErr := io.Copy(out, limitedReader)
+	closeErr := out.Close()
+
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if written > MaxDownloadSize {
+		os.Remove(dest)
+		return fmt.Errorf("download exceeded maximum size of %d bytes", MaxDownloadSize)
+	}
+	return nil
+}
+
+// DownloadFile downloads a file from URL to destination
+func DownloadFile(url, dest string) error {
+	if err := validateDownloadParams(url, dest); err != nil {
+		return err
 	}
 
 	client := &http.Client{Timeout: 5 * time.Minute}
@@ -125,31 +154,7 @@ func DownloadFile(url, dest string) error {
 		return &HTTPError{StatusCode: resp.StatusCode, URL: url}
 	}
 
-	// Create file with restrictive permissions
-	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-
-	// Limit download size to prevent DoS, track bytes written
-	limitedReader := io.LimitReader(resp.Body, MaxDownloadSize+1) // +1 to detect truncation
-	written, copyErr := io.Copy(out, limitedReader)
-	closeErr := out.Close()
-
-	if copyErr != nil {
-		return copyErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-
-	// Check if download was truncated
-	if written > MaxDownloadSize {
-		os.Remove(dest) // Clean up partial file
-		return fmt.Errorf("download exceeded maximum size of %d bytes", MaxDownloadSize)
-	}
-
-	return nil
+	return writeDownloadToFile(resp.Body, dest)
 }
 
 // HTTPError represents an HTTP error

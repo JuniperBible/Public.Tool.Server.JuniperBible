@@ -20,6 +20,44 @@ func GenerateManifest(dir string, releaseID string) (*Manifest, error) {
 	return GenerateManifestWithWorkers(dir, releaseID, runtime.NumCPU())
 }
 
+// collectFiles walks directory and returns list of relative file paths
+func collectFiles(dir string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		relPath, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		if relPath != "build-manifest.json" {
+			files = append(files, relPath)
+		}
+		return nil
+	})
+	return files, err
+}
+
+// hashWorker processes files from channel and adds to manifest
+func hashWorker(dir string, fileChan <-chan string, manifest *Manifest, mu *sync.Mutex, errChan chan<- error, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for relPath := range fileChan {
+		fullPath := filepath.Join(dir, relPath)
+		info, err := hashFile(fullPath)
+		if err != nil {
+			select {
+			case errChan <- err:
+			default:
+			}
+			continue
+		}
+		mu.Lock()
+		manifest.Files[relPath] = info
+		mu.Unlock()
+	}
+}
+
 // GenerateManifestWithWorkers creates a build manifest using the specified number of workers.
 func GenerateManifestWithWorkers(dir string, releaseID string, workers int) (*Manifest, error) {
 	manifest := &Manifest{
@@ -28,59 +66,19 @@ func GenerateManifestWithWorkers(dir string, releaseID string, workers int) (*Ma
 		BuildTime: time.Now().UTC(),
 	}
 
-	var mu sync.Mutex
-	var files []string
-
-	// Collect all files
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-
-		// Skip the manifest file itself
-		if relPath == "build-manifest.json" {
-			return nil
-		}
-
-		files = append(files, relPath)
-		return nil
-	})
+	files, err := collectFiles(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	// Hash files in parallel
+	var mu sync.Mutex
 	fileChan := make(chan string, len(files))
 	errChan := make(chan error, 1)
 	var wg sync.WaitGroup
 
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for relPath := range fileChan {
-				fullPath := filepath.Join(dir, relPath)
-				info, err := hashFile(fullPath)
-				if err != nil {
-					select {
-					case errChan <- err:
-					default:
-					}
-					continue
-				}
-				mu.Lock()
-				manifest.Files[relPath] = info
-				mu.Unlock()
-			}
-		}()
+		go hashWorker(dir, fileChan, manifest, &mu, errChan, &wg)
 	}
 
 	for _, f := range files {
@@ -89,7 +87,6 @@ func GenerateManifestWithWorkers(dir string, releaseID string, workers int) (*Ma
 	close(fileChan)
 	wg.Wait()
 
-	// Check for errors
 	select {
 	case err := <-errChan:
 		return nil, err
@@ -151,33 +148,40 @@ func ReadManifest(path string) (*Manifest, error) {
 	return &m, nil
 }
 
-// CalculateDelta compares local and remote manifests to find changed files.
-func CalculateDelta(local, remote *Manifest) *Delta {
-	delta := &Delta{}
-
-	// Find changed and new files
+// findChangedFiles finds files that are new or changed in local manifest
+func findChangedFiles(local, remote *Manifest) (changed, unchanged []string) {
 	for path, info := range local.Files {
 		remoteInfo, exists := remote.Files[path]
 		if !exists || remoteInfo.SHA256 != info.SHA256 {
-			delta.Changed = append(delta.Changed, path)
+			changed = append(changed, path)
 		} else {
-			delta.Unchanged = append(delta.Unchanged, path)
+			unchanged = append(unchanged, path)
 		}
 	}
+	return
+}
 
-	// Find deleted files
+// findDeletedFiles finds files that exist in remote but not in local
+func findDeletedFiles(local, remote *Manifest) []string {
+	var deleted []string
 	for path := range remote.Files {
 		if _, exists := local.Files[path]; !exists {
-			delta.Deleted = append(delta.Deleted, path)
+			deleted = append(deleted, path)
 		}
 	}
+	return deleted
+}
 
-	// Sort for deterministic output
-	sort.Strings(delta.Changed)
-	sort.Strings(delta.Unchanged)
-	sort.Strings(delta.Deleted)
+// CalculateDelta compares local and remote manifests to find changed files.
+func CalculateDelta(local, remote *Manifest) *Delta {
+	changed, unchanged := findChangedFiles(local, remote)
+	deleted := findDeletedFiles(local, remote)
 
-	return delta
+	sort.Strings(changed)
+	sort.Strings(unchanged)
+	sort.Strings(deleted)
+
+	return &Delta{Changed: changed, Unchanged: unchanged, Deleted: deleted}
 }
 
 // TotalSize returns the total size of files in the manifest.

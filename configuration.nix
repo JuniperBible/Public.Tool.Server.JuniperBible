@@ -124,11 +124,17 @@
   log {
     level ERROR
   }
+  # HTTP/3 support (QUIC)
+  servers {
+    protocols h1 h2 h3
+  }
+  # Global performance settings
+  admin off
 }
 
 # Shared site configuration
 (site_config) {
-  root * /var/www/juniperbible
+  root * /var/www/juniperbible/current
   encode gzip
 
   # Static redirects (301)
@@ -148,17 +154,23 @@
     precompressed br gzip
   }
 
-  # Cache static assets
+  # Cache static assets (1 year, immutable for fingerprinted assets)
   @static {
     path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
   }
   header @static Cache-Control "public, max-age=31536000, immutable"
 
-  # Cache Bible pages
+  # Cache Bible archives (1 year, immutable - content rarely changes)
+  @archives {
+    path /bible-archives/*
+  }
+  header @archives Cache-Control "public, max-age=31536000, immutable"
+
+  # Cache Bible pages (1 day, stale-while-revalidate for fast loads)
   @bible {
     path /bible/*
   }
-  header @bible Cache-Control "public, max-age=86400"
+  header @bible Cache-Control "public, max-age=86400, stale-while-revalidate=604800"
 
   # Security headers
   header {
@@ -473,7 +485,7 @@ CADDYEOF
 
       # Shared site configuration snippet (imported by each server block)
       site_config_snippet='(site_config) {
-  root * /var/www/juniperbible
+  root * /var/www/juniperbible/current
   encode gzip
 
   # Static redirects (301) - matches _redirects
@@ -494,15 +506,23 @@ CADDYEOF
     precompressed br gzip
   }
 
+  # Cache static assets (1 year, immutable)
   @static {
     path *.css *.js *.woff2 *.png *.jpg *.svg *.ico
   }
   header @static Cache-Control "public, max-age=31536000, immutable"
 
+  # Cache Bible archives (1 year, immutable)
+  @archives {
+    path /bible-archives/*
+  }
+  header @archives Cache-Control "public, max-age=31536000, immutable"
+
+  # Cache Bible pages (1 day + stale-while-revalidate)
   @bible {
     path /bible/*
   }
-  header @bible Cache-Control "public, max-age=86400"
+  header @bible Cache-Control "public, max-age=86400, stale-while-revalidate=604800"
 
   header {
     X-Content-Type-Options nosniff

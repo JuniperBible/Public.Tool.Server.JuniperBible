@@ -32,25 +32,8 @@ func RunOutput(name string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// RunWithOutput executes a command and captures output while also displaying it
-func RunWithOutput(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", err
-	}
-
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		// Close the pipe to prevent resource leak
-		stdout.Close()
-		return "", err
-	}
-
-	var output strings.Builder
-	reader := bufio.NewReader(stdout)
+// readAndPrintOutput reads from reader, prints, and accumulates output
+func readAndPrintOutput(reader *bufio.Reader, output *strings.Builder) error {
 	for {
 		line, err := reader.ReadString('\n')
 		if line != "" {
@@ -59,12 +42,31 @@ func RunWithOutput(name string, args ...string) (string, error) {
 		}
 		if err != nil {
 			if err != io.EOF {
-				return output.String(), err
+				return err
 			}
-			break
+			return nil
 		}
 	}
+}
 
+// RunWithOutput executes a command and captures output while also displaying it
+func RunWithOutput(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		stdout.Close()
+		return "", err
+	}
+
+	var output strings.Builder
+	if err := readAndPrintOutput(bufio.NewReader(stdout), &output); err != nil {
+		return output.String(), err
+	}
 	return output.String(), cmd.Wait()
 }
 
@@ -94,6 +96,21 @@ func IsMounted(path string) bool {
 	return err == nil
 }
 
+// runProgressIndicator runs a goroutine that prints dots every 5 seconds
+func runProgressIndicator(done <-chan struct{}, finished chan<- struct{}) {
+	defer close(finished)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			fmt.Print(".")
+		}
+	}
+}
+
 // RunWithProgress runs a command with a progress indicator (dots every 5 seconds)
 // Use for long-running commands like nixos-install that may take 10-30 minutes
 func RunWithProgress(name string, args ...string) error {
@@ -102,38 +119,17 @@ func RunWithProgress(name string, args ...string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
-	// Start the command
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
-	// Progress indicator goroutine with proper synchronization
 	done := make(chan struct{})
 	finished := make(chan struct{})
-	go func() {
-		defer close(finished)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "\nWarning: progress indicator error: %v\n", r)
-			}
-		}()
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				fmt.Print(".")
-			}
-		}
-	}()
+	go runProgressIndicator(done, finished)
 
-	// Wait for command to complete
 	err := cmd.Wait()
 	close(done)
-	<-finished // Wait for goroutine to exit
-	fmt.Println() // Newline after progress dots
-
+	<-finished
+	fmt.Println()
 	return err
 }

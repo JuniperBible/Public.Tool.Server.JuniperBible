@@ -47,13 +47,13 @@ func (d *RemoteDeployer) currentLink() string {
 
 // ssh runs a command on the remote host.
 func (d *RemoteDeployer) ssh(script string) ([]byte, error) {
-	cmd := exec.Command("ssh", d.host, "bash", "-c", script)
+	cmd := exec.Command("ssh", d.host, script)
 	return cmd.CombinedOutput()
 }
 
 // sshStream runs a command on the remote host with stdin streaming.
 func (d *RemoteDeployer) sshStream(script string) (*exec.Cmd, io.WriteCloser, error) {
-	cmd := exec.Command("ssh", d.host, "bash", "-c", script)
+	cmd := exec.Command("ssh", d.host, script)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -86,15 +86,21 @@ func (d *RemoteDeployer) FetchManifest() (*Manifest, error) {
 	return &m, nil
 }
 
-// CreateRelease creates a new release directory with hardlinks from current.
+// CreateRelease creates a new release directory.
+// Uses hardlink copy from current release for delta deploy efficiency.
+// Hardlinks let unchanged files share disk space while changed files
+// are replaced via unlink+extract (see UploadDelta).
 func (d *RemoteDeployer) CreateRelease(releaseID string) error {
 	releaseDir := d.releaseDir(releaseID)
 	currentLink := d.currentLink()
 
+	// Use cp -al to create hardlink copy if current exists, else mkdir
+	// Note: We use $(readlink -f ...) to resolve symlinks, otherwise cp -al
+	// would copy the symlink itself instead of the directory contents
 	script := fmt.Sprintf(`
 		set -e
-		if [ -L '%s' ]; then
-			cp -al $(readlink -f '%s') '%s'
+		if [ -d '%s' ]; then
+			cp -al "$(readlink -f '%s')" '%s'
 		else
 			mkdir -p '%s'
 		fi
@@ -127,59 +133,62 @@ func (d *RemoteDeployer) UploadFull(buildDir, releaseID string) error {
 	return d.UploadDelta(buildDir, releaseID, files)
 }
 
+// writeFilesToTar writes files to tar writer and returns total size
+func writeFilesToTar(tarWriter *tar.Writer, buildDir string, files []string) (int64, error) {
+	var totalSize int64
+	for _, file := range files {
+		fullPath := filepath.Join(buildDir, file)
+		if err := addFileToTar(tarWriter, fullPath, file); err != nil {
+			return 0, fmt.Errorf("add %s to tar: %w", file, err)
+		}
+		if info, _ := os.Stat(fullPath); info != nil {
+			totalSize += info.Size()
+		}
+	}
+	return totalSize, nil
+}
+
+// streamTarXZ creates tar writer and streams XZ-compressed tar to stdin
+func streamTarXZ(stdin io.WriteCloser, buildDir string, files []string) (int64, error) {
+	xzWriter, err := xz.NewWriter(stdin)
+	if err != nil {
+		return 0, fmt.Errorf("create xz writer: %w", err)
+	}
+	tarWriter := tar.NewWriter(xzWriter)
+	totalSize, writeErr := writeFilesToTar(tarWriter, buildDir, files)
+	tarWriter.Close()
+	xzWriter.Close()
+	return totalSize, writeErr
+}
+
 // UploadDelta uploads only changed files to the release directory via SSH + XZ.
+// Uses --unlink-first to break hardlinks before extraction, preserving rollback integrity.
 func (d *RemoteDeployer) UploadDelta(buildDir, releaseID string, files []string) error {
 	if len(files) == 0 {
 		return nil
 	}
 
-	releaseDir := d.releaseDir(releaseID)
-
-	// Start SSH process with xz decompression and tar extraction
-	script := fmt.Sprintf("cd '%s' && xz -d | tar -xf -", releaseDir)
+	// --unlink-first removes existing files before extracting, breaking hardlinks
+	// so the original file in the source release remains intact for rollback
+	script := fmt.Sprintf("cd '%s' && xz -d | tar --unlink-first -xf -", d.releaseDir(releaseID))
 	cmd, stdin, err := d.sshStream(script)
 	if err != nil {
 		return fmt.Errorf("start ssh: %w", err)
 	}
 
-	// Write XZ-compressed tar to stdin
-	xzWriter, err := xz.NewWriter(stdin)
-	if err != nil {
-		stdin.Close()
-		cmd.Wait()
-		return fmt.Errorf("create xz writer: %w", err)
-	}
-
-	tarWriter := tar.NewWriter(xzWriter)
-
-	var totalSize int64
-	for _, file := range files {
-		fullPath := filepath.Join(buildDir, file)
-		if err := addFileToTar(tarWriter, fullPath, file); err != nil {
-			tarWriter.Close()
-			xzWriter.Close()
-			stdin.Close()
-			cmd.Wait()
-			return fmt.Errorf("add %s to tar: %w", file, err)
-		}
-
-		info, _ := os.Stat(fullPath)
-		if info != nil {
-			totalSize += info.Size()
-		}
-	}
-
-	tarWriter.Close()
-	xzWriter.Close()
+	totalSize, writeErr := streamTarXZ(stdin, buildDir, files)
 	stdin.Close()
 
+	if writeErr != nil {
+		cmd.Wait()
+		return writeErr
+	}
 	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
 	fmt.Printf("    Uploaded %d files (%.2f MB uncompressed)\n",
 		len(files), float64(totalSize)/(1024*1024))
-
 	return nil
 }
 
@@ -321,29 +330,22 @@ func (d *RemoteDeployer) ListReleases() ([]Release, error) {
 	return releases, nil
 }
 
-// Rollback switches to a previous release.
-func (d *RemoteDeployer) Rollback(releaseID string) error {
-	// If no release ID specified, use the previous one
-	if releaseID == "" {
-		releases, err := d.ListReleases()
-		if err != nil {
-			return err
-		}
-
-		// Find the previous (non-current) release
-		for _, r := range releases {
-			if !r.Current {
-				releaseID = r.ID
-				break
-			}
-		}
-
-		if releaseID == "" {
-			return fmt.Errorf("no previous release found")
+// findPreviousReleaseID finds the first non-current release ID
+func (d *RemoteDeployer) findPreviousReleaseID() (string, error) {
+	releases, err := d.ListReleases()
+	if err != nil {
+		return "", err
+	}
+	for _, r := range releases {
+		if !r.Current {
+			return r.ID, nil
 		}
 	}
+	return "", fmt.Errorf("no previous release found")
+}
 
-	// Verify release exists and activate
+// activateRemoteRelease activates a release on the remote server
+func (d *RemoteDeployer) activateRemoteRelease(releaseID string) error {
 	releaseDir := d.releaseDir(releaseID)
 	currentLink := d.currentLink()
 
@@ -361,8 +363,20 @@ func (d *RemoteDeployer) Rollback(releaseID string) error {
 	if err != nil {
 		return fmt.Errorf("rollback: %s: %w", output, err)
 	}
-
 	return nil
+}
+
+// Rollback switches to a previous release.
+func (d *RemoteDeployer) Rollback(releaseID string) error {
+	targetID := releaseID
+	if targetID == "" {
+		var err error
+		targetID, err = d.findPreviousReleaseID()
+		if err != nil {
+			return err
+		}
+	}
+	return d.activateRemoteRelease(targetID)
 }
 
 // GetCurrentRelease returns the currently active release ID.

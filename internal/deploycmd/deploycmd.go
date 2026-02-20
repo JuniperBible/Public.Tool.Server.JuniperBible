@@ -9,8 +9,17 @@ import (
 	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/deploy"
 )
 
-// Run executes the deploy subcommand with the given arguments.
-func Run(args []string) {
+// deployFlags holds parsed flags for deploy command
+type deployFlags struct {
+	configPath string
+	releaseID  string
+	dryRun     bool
+	full       bool
+	noBuild    bool
+}
+
+// parseDeployFlags parses flags and returns command, environment, remaining args, and flags
+func parseDeployFlags(args []string) (command, envName string, remaining []string, flags deployFlags) {
 	fs := flag.NewFlagSet("deploy", flag.ExitOnError)
 
 	configPath := fs.String("config", "deploy.toml", "Path to configuration file")
@@ -24,7 +33,6 @@ func Run(args []string) {
 		printUsage()
 		fs.PrintDefaults()
 	}
-
 	fs.Parse(args)
 
 	if *help {
@@ -32,11 +40,17 @@ func Run(args []string) {
 		os.Exit(0)
 	}
 
-	remaining := fs.Args()
+	flags = deployFlags{
+		configPath: *configPath,
+		releaseID:  *releaseID,
+		dryRun:     *dryRun,
+		full:       *full,
+		noBuild:    *noBuild,
+	}
 
-	// Determine command and environment
-	command := "deploy"
-	envName := "local"
+	remaining = fs.Args()
+	command = "deploy"
+	envName = "local"
 
 	if len(remaining) >= 1 {
 		switch remaining[0] {
@@ -49,70 +63,113 @@ func Run(args []string) {
 			envName = remaining[0]
 		}
 	}
+	return
+}
 
-	// Load configuration
-	config, err := deploy.LoadConfig(*configPath)
+// loadDeployEnv loads config and returns the environment
+func loadDeployEnv(configPath, envName string) *deploy.Environment {
+	config, err := deploy.LoadConfig(configPath)
 	if err != nil {
-		// If no config file, use defaults
-		config = &deploy.Config{
-			Environments: deploy.DefaultEnvironments(),
-		}
+		config = &deploy.Config{Environments: deploy.DefaultEnvironments()}
 	}
 
-	// Find environment
 	foundEnv, ok := config.GetEnvironment(envName)
 	if !ok {
 		fmt.Fprintf(os.Stderr, "Error: unknown environment '%s'\n", envName)
 		fmt.Fprintf(os.Stderr, "Available environments: %s\n", availableEnvs(config))
 		os.Exit(1)
 	}
-	env := &foundEnv
+	return &foundEnv
+}
 
-	// Execute command
-	var cmdErr error
-	switch command {
-	case "deploy":
-		opts := deploy.Options{
-			ReleaseID: *releaseID,
-			DryRun:    *dryRun,
-			Full:      *full,
-			NoBuild:   *noBuild,
-		}
-		cmdErr = deploy.Deploy(*env, opts)
-
-	case "list":
-		cmdErr = deploy.ListReleases(*env)
-
-	case "rollback":
-		targetRelease := ""
-		if len(remaining) >= 3 {
-			targetRelease = remaining[2]
-		}
-		cmdErr = deploy.Rollback(*env, targetRelease)
-
-	case "status":
-		cmdErr = deploy.Status(*env)
-
-	case "manifest":
-		buildDir := "public"
-		if len(remaining) >= 2 {
-			buildDir = remaining[1]
-		}
-		cmdErr = deploy.GenerateManifestOnly(buildDir, *releaseID)
-
-	default:
-		fmt.Fprintf(os.Stderr, "Error: unknown command '%s'\n", command)
-		os.Exit(1)
+// cmdDeploy executes the deploy command
+func cmdDeploy(env *deploy.Environment, flags deployFlags) error {
+	opts := deploy.Options{
+		ReleaseID: flags.releaseID,
+		DryRun:    flags.dryRun,
+		Full:      flags.full,
+		NoBuild:   flags.noBuild,
 	}
+	return deploy.Deploy(*env, opts)
+}
 
-	if cmdErr != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", cmdErr)
+// cmdRollback executes the rollback command
+func cmdRollback(env *deploy.Environment, remaining []string) error {
+	targetRelease := ""
+	if len(remaining) >= 3 {
+		targetRelease = remaining[2]
+	}
+	return deploy.Rollback(*env, targetRelease)
+}
+
+// cmdManifest executes the manifest command
+func cmdManifest(remaining []string, releaseID string) error {
+	buildDir := "public"
+	if len(remaining) >= 2 {
+		buildDir = remaining[1]
+	}
+	return deploy.GenerateManifestOnly(buildDir, releaseID)
+}
+
+// commandHandler is a function that handles a deploy subcommand
+type commandHandler func(*deploy.Environment, []string, deployFlags) error
+
+// handleDeploy handles the deploy command
+func handleDeploy(env *deploy.Environment, _ []string, flags deployFlags) error {
+	return cmdDeploy(env, flags)
+}
+
+// handleList handles the list command
+func handleList(env *deploy.Environment, _ []string, _ deployFlags) error {
+	return deploy.ListReleases(*env)
+}
+
+// handleRollback handles the rollback command
+func handleRollback(env *deploy.Environment, remaining []string, _ deployFlags) error {
+	return cmdRollback(env, remaining)
+}
+
+// handleStatus handles the status command
+func handleStatus(env *deploy.Environment, _ []string, _ deployFlags) error {
+	return deploy.Status(*env)
+}
+
+// handleManifest handles the manifest command
+func handleManifest(_ *deploy.Environment, remaining []string, flags deployFlags) error {
+	return cmdManifest(remaining, flags.releaseID)
+}
+
+// commandHandlers maps commands to their handlers
+var commandHandlers = map[string]commandHandler{
+	"deploy":   handleDeploy,
+	"list":     handleList,
+	"rollback": handleRollback,
+	"status":   handleStatus,
+	"manifest": handleManifest,
+}
+
+// runDeployCommand executes the deploy subcommand
+func runDeployCommand(command string, env *deploy.Environment, remaining []string, flags deployFlags) error {
+	handler, ok := commandHandlers[command]
+	if !ok {
+		return fmt.Errorf("unknown command '%s'", command)
+	}
+	return handler(env, remaining, flags)
+}
+
+// Run executes the deploy subcommand with the given arguments.
+func Run(args []string) {
+	command, envName, remaining, flags := parseDeployFlags(args)
+	env := loadDeployEnv(flags.configPath, envName)
+
+	if err := runDeployCommand(command, env, remaining, flags); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func printUsage() {
-	fmt.Println(`juniper-host deploy - Atomic deployment with delta sync
+	fmt.Print(`juniper-host deploy - Atomic deployment with delta sync
 
 Usage:
   juniper-host deploy [flags] [environment]

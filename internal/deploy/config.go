@@ -33,36 +33,38 @@ func DefaultEnvironments() []Environment {
 	}
 }
 
-// LoadConfig loads configuration from deploy.toml if present,
-// falling back to defaults for missing environments.
-func LoadConfig(configPath string) (*Config, error) {
-	// If no path specified, look in current directory
+// defaultConfigPath returns the default config path if empty
+func defaultConfigPath(configPath string) string {
 	if configPath == "" {
-		configPath = "deploy.toml"
+		return "deploy.toml"
 	}
+	return configPath
+}
 
-	// Try to load config file
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No config file, use defaults
-			return &Config{Environments: DefaultEnvironments()}, nil
-		}
-		return nil, err
-	}
-
-	// Parse TOML
+// parseConfigFile parses the TOML config file
+func parseConfigFile(data []byte) (*Config, error) {
 	var config Config
 	if _, err := toml.Decode(string(data), &config); err != nil {
 		return nil, err
 	}
-
-	// If no environments in config, use defaults
 	if len(config.Environments) == 0 {
 		config.Environments = DefaultEnvironments()
 	}
-
 	return &config, nil
+}
+
+// LoadConfig loads configuration from deploy.toml if present,
+// falling back to defaults for missing environments.
+func LoadConfig(configPath string) (*Config, error) {
+	path := defaultConfigPath(configPath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &Config{Environments: DefaultEnvironments()}, nil
+		}
+		return nil, err
+	}
+	return parseConfigFile(data)
 }
 
 // GetEnvironment returns the environment configuration for the given name.
