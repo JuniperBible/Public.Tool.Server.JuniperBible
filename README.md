@@ -101,6 +101,7 @@ sudo ./juniper-host-linux-amd64 install
 | `install` | Install NixOS (requires pre-mounted /mnt) |
 | `wizard` | Interactive setup wizard (run after first boot) |
 | `upgrade` | Update configuration on local or remote host |
+| `deploy` | Deploy website with atomic delta sync |
 | `version` | Show version |
 
 ## Bootstrap Options
@@ -146,19 +147,35 @@ The wizard runs automatically on first SSH login as root and configures:
 
 ### Manual Site Deployment
 
+Using the Go-based deploy tool (recommended):
 ```bash
-# Deploy latest release
-deploy-juniper
+# From your dev machine
+make deploy-prod          # Deploy with delta sync
+make deploy-dry          # Preview changes without deploying
+make deploy-list         # List available releases
+make deploy-rollback     # Rollback to previous release
+```
 
-# Or via make from your dev machine
+Using juniper-host directly:
+```bash
+juniper-host deploy prod
+juniper-host deploy rollback prod
+juniper-host deploy list prod
+```
+
+Legacy full deploy (deprecated):
+```bash
 make deploy-vps VPS=deploy@your-server:/var/www/juniperbible
 ```
 
 ### Updating the Site
 
 ```bash
-ssh deploy@your-server
-deploy-juniper
+# From your dev machine (recommended)
+make deploy-prod
+
+# Or via juniper-host
+juniper-host deploy prod
 ```
 
 ### Updating the Server Configuration

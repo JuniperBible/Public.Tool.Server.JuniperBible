@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/bootstrap"
+	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/deploycmd"
 	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/installer"
 	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/upgrade"
 	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/wizard"
@@ -27,6 +28,8 @@ func main() {
 		wizard.Run(os.Args[2:])
 	case "upgrade":
 		upgrade.Run(os.Args[2:])
+	case "deploy":
+		deploycmd.Run(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Printf("juniper-host %s\n", version)
 	case "help", "--help", "-h":
@@ -39,7 +42,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println(`juniper-host - NixOS server setup for Juniper Bible
+	fmt.Println(`juniper-host - NixOS server setup and deployment for Juniper Bible
 
 Usage:
   juniper-host <command> [options]
@@ -49,6 +52,7 @@ Commands:
   install      Install NixOS to pre-mounted /mnt
   wizard       Interactive setup wizard (run after first boot)
   upgrade      Update configuration on local or remote host
+  deploy       Deploy website with atomic delta sync
   version      Show version
   help         Show this help message
 
@@ -85,5 +89,28 @@ Examples:
   juniper-host upgrade --host=root@your-server
 
   # Upgrade local NixOS (run on the server itself)
-  juniper-host upgrade`)
+  juniper-host upgrade
+
+Deploy Options:
+  --config=PATH        Path to deploy.toml (default: deploy.toml)
+  --release=ID         Release ID (default: auto-generated timestamp-hash)
+  --dry-run            Show what would be deployed without deploying
+  --full               Upload all files instead of delta
+  --no-build           Skip Hugo build (use existing public/ directory)
+
+Deploy Examples:
+  # Deploy to local releases directory
+  juniper-host deploy local
+
+  # Deploy to production VPS
+  juniper-host deploy prod
+
+  # Preview what would be deployed
+  juniper-host deploy prod --dry-run
+
+  # List releases on production
+  juniper-host deploy list prod
+
+  # Rollback to previous release
+  juniper-host deploy rollback prod`)
 }
