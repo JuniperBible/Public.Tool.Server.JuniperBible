@@ -123,6 +123,25 @@ sudo ./juniper-host-linux-amd64 install
 | `--yes` | Skip confirmation prompts |
 | `--config-only` | Only update configuration, don't rebuild NixOS |
 
+## Deploy Options
+
+| Option | Description |
+|--------|-------------|
+| `--config=PATH` | Path to deploy.toml (default: deploy.toml) |
+| `--release=ID` | Override auto-generated release ID |
+| `--dry-run` | Show what would be deployed without deploying |
+| `--full` | Upload all files instead of delta sync |
+| `--no-build` | Skip Hugo build (use existing public/ directory) |
+
+### Deploy Subcommands
+
+```bash
+juniper-host deploy [env]           # Deploy to environment (local, prod)
+juniper-host deploy list [env]      # List releases
+juniper-host deploy rollback [env]  # Rollback to previous release
+juniper-host deploy status [env]    # Show current deployment status
+```
+
 ## Post-Installation
 
 ### Setup Wizard
