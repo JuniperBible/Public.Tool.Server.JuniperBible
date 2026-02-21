@@ -23,7 +23,7 @@ ping -c 3 github.com
 
 ```bash
 # Download and run (auto-detects disk)
-curl -fsSL https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases/latest/download/juniper-host-linux-amd64.tar.gz | tar -xzf -
+curl -fsSL https://github.com/JuniperBible/juniper-server/releases/latest/download/juniper-host-linux-amd64.tar.gz | tar -xzf -
 
 # Quick install: auto-detect everything, just paste your SSH key when prompted
 sudo ./juniper-host-linux-amd64 bootstrap --enthusiastic-yes

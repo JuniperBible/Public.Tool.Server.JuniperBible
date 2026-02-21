@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	RepoBase = "https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main"
+	RepoBase = "https://raw.githubusercontent.com/JuniperBible/juniper-server/main"
 )
 
 // Pre-compiled regex patterns for validation

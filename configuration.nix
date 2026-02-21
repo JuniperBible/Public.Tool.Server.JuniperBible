@@ -214,7 +214,7 @@ CADDYEOF
       #!/usr/bin/env bash
       set -euo pipefail
 
-      RELEASE_URL="https://github.com/JuniperBible/Website.Server.JuniperBible.org/releases/latest/download/site.tar.xz"
+      RELEASE_URL="https://github.com/JuniperBible/juniper-server/releases/latest/download/site.tar.xz"
       DEPLOY_DIR="/var/www/juniperbible"
       TEMP_DIR=$(mktemp -d)
 

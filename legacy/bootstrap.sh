@@ -4,7 +4,7 @@
 # Kept for reference only.
 #
 # Juniper Bible - NixOS One-Liner Bootstrap
-# Usage: curl -fsSL https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main/bootstrap.sh | sudo bash -s -- [DISK] [SSH_KEY]
+# Usage: curl -fsSL https://raw.githubusercontent.com/JuniperBible/juniper-server/main/bootstrap.sh | sudo bash -s -- [DISK] [SSH_KEY]
 #
 # Examples:
 #   curl ... | sudo bash                                    # Auto-detects disk, prompts for SSH key
@@ -27,7 +27,7 @@ detect_disk() {
 
 DISK="${1:-$(detect_disk)}"
 SSH_KEY="${2:-}"
-REPO_BASE="https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main"
+REPO_BASE="https://raw.githubusercontent.com/JuniperBible/juniper-server/main"
 
 if [[ -z "$DISK" ]]; then
   echo "ERROR: Could not detect disk. Please specify: curl ... | sudo bash -s -- /dev/sdX"

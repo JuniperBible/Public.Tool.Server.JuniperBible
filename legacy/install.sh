@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-REPO_BASE="https://raw.githubusercontent.com/JuniperBible/Website.Server.JuniperBible.org/main"
+REPO_BASE="https://raw.githubusercontent.com/JuniperBible/juniper-server/main"
 
 echo "========================================"
 echo "Juniper Bible - NixOS Host Installation"
