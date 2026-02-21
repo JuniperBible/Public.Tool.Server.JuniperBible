@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/bootstrap"
-	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/deploycmd"
-	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/installer"
-	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/upgrade"
-	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/wizard"
+	"github.com/JuniperBible/juniper-server/internal/bootstrap"
+	"github.com/JuniperBible/juniper-server/internal/deploycmd"
+	"github.com/JuniperBible/juniper-server/internal/installer"
+	"github.com/JuniperBible/juniper-server/internal/upgrade"
+	"github.com/JuniperBible/juniper-server/internal/wizard"
 )
 
 var version = "dev"

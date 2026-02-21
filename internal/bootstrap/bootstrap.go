@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/common"
+	"github.com/JuniperBible/juniper-server/internal/common"
 )
 
 // bootstrapFlags holds all command line flags for bootstrap

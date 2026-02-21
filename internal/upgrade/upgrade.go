@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/common"
+	"github.com/JuniperBible/juniper-server/internal/common"
 )
 
 const (

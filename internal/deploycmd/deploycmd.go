@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/deploy"
+	"github.com/JuniperBible/juniper-server/internal/deploy"
 )
 
 // deployFlags holds parsed flags for deploy command

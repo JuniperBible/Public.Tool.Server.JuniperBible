@@ -1,6 +1,6 @@
-module github.com/JuniperBible/Website.Server.JuniperBible.org
+module github.com/JuniperBible/juniper-server
 
-go 1.21
+go 1.26.0
 
 require (
 	github.com/BurntSushi/toml v1.3.2

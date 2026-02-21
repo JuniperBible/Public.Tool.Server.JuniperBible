@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/JuniperBible/Website.Server.JuniperBible.org/internal/common"
+	"github.com/JuniperBible/juniper-server/internal/common"
 )
 
 // checkMounts verifies /mnt and /mnt/boot are mounted
