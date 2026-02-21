@@ -1,4 +1,4 @@
-module github.com/JuniperBible/juniper-server
+module github.com/JuniperBible/Public.Tool.Server.JuniperBible
 
 go 1.26.0
 

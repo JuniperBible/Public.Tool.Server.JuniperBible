@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/JuniperBible/juniper-server/internal/deploy"
+	"github.com/JuniperBible/Public.Tool.Server.JuniperBible/internal/deploy"
 )
 
 const usage = `juniper-deploy - Atomic deployment tool for Juniper Bible
@@ -97,7 +97,9 @@ func parseCommandLine() (command, envName string, args []string, flags cliFlags)
 func loadEnvironment(configPath, envName string) *deploy.Environment {
 	config, err := deploy.LoadConfig(configPath)
 	if err != nil {
-		config = &deploy.Config{Environments: deploy.DefaultEnvironments()}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\nCreate a deploy.toml in your project root:\n\n%s", deploy.ExampleConfig())
+		os.Exit(1)
 	}
 
 	foundEnv, ok := config.GetEnvironment(envName)
