@@ -70,7 +70,9 @@ func parseDeployFlags(args []string) (command, envName string, remaining []strin
 func loadDeployEnv(configPath, envName string) *deploy.Environment {
 	config, err := deploy.LoadConfig(configPath)
 	if err != nil {
-		config = &deploy.Config{Environments: deploy.DefaultEnvironments()}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\nCreate a deploy.toml in your project root:\n\n%s", deploy.ExampleConfig())
+		os.Exit(1)
 	}
 
 	foundEnv, ok := config.GetEnvironment(envName)

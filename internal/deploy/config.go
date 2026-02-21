@@ -12,25 +12,25 @@ type Config struct {
 	Environments []Environment `toml:"environments"`
 }
 
-// DefaultEnvironments returns the hardcoded default environments.
-// Used when deploy.toml is missing or doesn't define an environment.
-func DefaultEnvironments() []Environment {
-	return []Environment{
-		{
-			Name:    "local",
-			Target:  "",
-			Path:    "./deploy",
-			KeepN:   3,
-			BaseURL: "http://localhost:1314",
-		},
-		{
-			Name:    "prod",
-			Target:  "root@45.77.6.158",
-			Path:    "/var/www/juniperbible",
-			KeepN:   5,
-			BaseURL: "https://juniperbible.org",
-		},
-	}
+// ExampleConfig returns an example configuration for documentation.
+func ExampleConfig() string {
+	return `# deploy.toml - Deployment configuration
+# Place this file in your project root.
+
+[[environments]]
+name = "local"
+target = ""
+path = "./deploy"
+keepN = 3
+baseURL = "http://localhost:1314"
+
+[[environments]]
+name = "prod"
+target = "user@host"
+path = "/var/www/site"
+keepN = 5
+baseURL = "https://example.com"
+`
 }
 
 // defaultConfigPath returns the default config path if empty
@@ -47,21 +47,15 @@ func parseConfigFile(data []byte) (*Config, error) {
 	if _, err := toml.Decode(string(data), &config); err != nil {
 		return nil, err
 	}
-	if len(config.Environments) == 0 {
-		config.Environments = DefaultEnvironments()
-	}
 	return &config, nil
 }
 
-// LoadConfig loads configuration from deploy.toml if present,
-// falling back to defaults for missing environments.
+// LoadConfig loads configuration from deploy.toml.
+// Returns an error if the config file is not found.
 func LoadConfig(configPath string) (*Config, error) {
 	path := defaultConfigPath(configPath)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &Config{Environments: DefaultEnvironments()}, nil
-		}
 		return nil, err
 	}
 	return parseConfigFile(data)
